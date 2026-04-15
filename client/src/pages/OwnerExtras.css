@@ -1,0 +1,59 @@
+/* OwnerExtras.css */
+
+/* Kanban Board */
+.kanban-cols {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+}
+
+.kanban-col-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.kanban-col-body {
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 var(--radius) var(--radius);
+    background: rgba(242, 238, 232, 0.35);
+    min-height: 240px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.mnt-card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.15s, transform 0.15s;
+    animation: fadeSlideUp 0.35s ease both;
+}
+
+.mnt-card:hover {
+    box-shadow: var(--shadow);
+    transform: translateY(-1px);
+}
+
+@media (max-width: 960px) {
+    .kanban-cols {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .kanban-cols {
+        grid-template-columns: 1fr;
+    }
+}

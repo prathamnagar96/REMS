@@ -1,0 +1,59 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+server/.env
+client/.env
+client/.env.*
+!client/.env.example
+server.env
+server.env.*
+!server.env.example
+
+# Node.js
+node_modules/
+client/node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+client/dist/
+client/dist-ssr/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+server/venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
+pip-wheel-metadata/
+
+# Temporary/runtime files
+*.sqlite3
+*.db
+*.tmp
+*.swp
+*.swo
