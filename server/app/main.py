@@ -25,3 +25,8 @@ app.include_router(workflow.router)
 @app.get("/health", tags=["health"])
 async def health_check():
     return {"status": "ok"}
+
+
+@app.get("/api/health", tags=["health"])
+async def api_health_check():
+    return {"status": "ok"}

@@ -1,6 +1,8 @@
 import { getAuthHeader } from "./sessionService";
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
+const configuredApiBase = import.meta.env.VITE_API_BASE_URL;
+const defaultApiBase = import.meta.env.DEV ? "http://localhost:8000" : "";
+const API_BASE = ((configuredApiBase && configuredApiBase.trim()) || defaultApiBase).replace(/\/$/, "");
 
 async function requestJson(path, { method = "GET", payload, withAuth = false } = {}) {
     const headers = { "Content-Type": "application/json" };

@@ -28,6 +28,8 @@ server.env.*
 # Node.js
 node_modules/
 client/node_modules/
+.vercel/
+client/.vercel/
 dist/
 build/
 coverage/
