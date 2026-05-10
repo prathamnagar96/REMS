@@ -1,95 +1,72 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { getOwnerPropertyById } from "../services/apiClient";
 import "./Dashboard.css";
 import "./Properties.css";
 import "./PropertyDetail.css";
 
-// ─── MOCK DATA ────────────────────────────────────────────────────────────────
-const PROPERTY = {
-  id: 1, status: "occupied", publishState: "published",
-  title: "Sunrise Heights 2BHK",
-  type: "Apartment", bhk: "2 BHK",
-  address: "Flat 402, Plot 14, Andheri Lokhandwala Road, Andheri West",
-  city: "Mumbai", state: "Maharashtra", pincode: "400053",
-  landmark: "Near Versova Metro Station",
-  sizeCarpet: 850, sizeBuiltup: 1020,
-  floorNumber: 4, totalFloors: 12,
-  facing: "East", propertyAge: 8,
-  furnishing: "Semi Furnished",
-  parking: "2-Wheeler", petPolicy: "Negotiable",
-  amenities: ["Lift", "Security Guard", "CCTV", "Generator Backup", "Intercom"],
-  rent: 28000, deposit: 84000, maintenanceCharges: 1200,
-  minLease: 11, maxLease: 12, noticePeriod: 2,
-  preferredTenants: "No Preference",
-  houseRules: ["No smoking inside the property", "No loud music after 10 PM", "Guests must be registered with society security", "No structural modifications without written approval"],
-  description: "Well-maintained 2BHK apartment in the heart of Andheri West. Walking distance to Versova Metro station, D-Mart, and multiple bus stops. East-facing for excellent morning sunlight. Building has 24/7 security and power backup.",
-  rentIncludes: ["Maintenance Charges"],
-  createdAt: "2024-01-15", listedAt: "2024-01-18",
-  views: 124, inquiries: 6, rating: 4.8,
-  registrationNo: "MH-REG-2024-004821",
+const EMPTY_PROPERTY = {
+  id: "",
+  status: "vacant",
+  publishState: "draft",
+  title: "Property",
+  type: "—",
+  bhk: "—",
+  address: "Address not available",
+  city: "",
+  state: "",
+  pincode: "",
+  landmark: "",
+  sizeCarpet: 0,
+  sizeBuiltup: 0,
+  floorNumber: 0,
+  totalFloors: 1,
+  facing: "—",
+  propertyAge: 0,
+  furnishing: "—",
+  parking: "—",
+  petPolicy: "—",
+  amenities: [],
+  rent: 0,
+  deposit: 0,
+  maintenanceCharges: 0,
+  minLease: 0,
+  maxLease: 0,
+  noticePeriod: 0,
+  preferredTenants: "—",
+  houseRules: [],
+  description: "",
+  rentIncludes: [],
+  createdAt: null,
+  listedAt: null,
+  views: 0,
+  inquiries: 0,
+  rating: 0,
+  registrationNo: "—",
 };
 
-const TENANT = {
-  id: 1,
-  name: "Riya Sharma", initials: "RS",
-  email: "riya.sharma@gmail.com", phone: "+91 98765 43210",
-  altPhone: "+91 87654 32109",
-  occupation: "Software Engineer at TCS", monthlyIncome: 85000,
-  idType: "Aadhaar Card", idNumber: "XXXX-XXXX-4521",
-  emergencyName: "Suresh Sharma", emergencyRelation: "Father", emergencyPhone: "+91 87654 32100",
-  leaseStart: "2024-12-01", leaseEnd: "2025-11-30",
-  status: "current", paymentStatus: "paid",
-  moveInDate: "2024-12-03",
-  policeVerified: true,
-  agreementSigned: true,
+const EMPTY_TENANT = {
+  id: null,
+  name: "No active tenant",
+  initials: "—",
+  email: "—",
+  phone: "—",
+  altPhone: "—",
+  occupation: "—",
+  monthlyIncome: 0,
+  idType: "—",
+  idNumber: "—",
+  emergencyName: "—",
+  emergencyRelation: "—",
+  emergencyPhone: "—",
+  leaseStart: null,
+  leaseEnd: null,
+  status: "vacant",
+  paymentStatus: "—",
+  moveInDate: null,
+  policeVerified: false,
+  agreementSigned: false,
 };
-
-const PAYMENTS = [
-  { id: 1, month: "May 2025", amount: 28000, maintenance: 1200, total: 29200, dueDate: "2025-05-05", paidDate: null, status: "upcoming", receipt: null, txnId: null },
-  { id: 2, month: "April 2025", amount: 28000, maintenance: 1200, total: 29200, dueDate: "2025-04-05", paidDate: "2025-04-01", status: "paid", receipt: "RCP-APR-2025-001", txnId: "HDFC-84729312" },
-  { id: 3, month: "March 2025", amount: 28000, maintenance: 1200, total: 29200, dueDate: "2025-03-05", paidDate: "2025-03-04", status: "paid", receipt: "RCP-MAR-2025-001", txnId: "HDFC-72918341" },
-  { id: 4, month: "February 2025", amount: 28000, maintenance: 1200, total: 29200, dueDate: "2025-02-05", paidDate: "2025-02-03", status: "paid", receipt: "RCP-FEB-2025-001", txnId: "HDFC-61827430" },
-  { id: 5, month: "January 2025", amount: 28000, maintenance: 1200, total: 29200, dueDate: "2025-01-05", paidDate: "2025-01-05", status: "paid", receipt: "RCP-JAN-2025-001", txnId: "HDFC-50917812" },
-  { id: 6, month: "December 2024", amount: 28000, maintenance: 1200, total: 29200, dueDate: "2024-12-05", paidDate: "2024-12-04", status: "paid", receipt: "RCP-DEC-2024-001", txnId: "HDFC-49812342" },
-];
-
-const MAINTENANCE = [
-  { id: 1, title: "Water seepage in bathroom wall", category: "Plumbing", priority: "high", status: "in_progress", date: "2025-04-05", assignedTo: "Raju Plumber", cost: null, desc: "Water leaking near shower. Plumber assigned, epoxy sealing in progress." },
-  { id: 2, title: "Light fitting loose in living room", category: "Electrical", priority: "low", status: "resolved", date: "2025-03-28", assignedTo: "Sunil Electrician", cost: 650, desc: "Chandelier fitting repaired and secured. Replaced one fitting clip." },
-  { id: 3, title: "Kitchen sink drain slow", category: "Plumbing", priority: "medium", status: "resolved", date: "2025-02-10", assignedTo: "Raju Plumber", cost: 400, desc: "Drain cleared with jet pump. Advised not to pour grease down drain." },
-  { id: 4, title: "AC remote not working", category: "Appliance", priority: "low", status: "resolved", date: "2025-01-18", assignedTo: "Samsung Service", cost: 0, desc: "Battery replacement resolved the issue. No service charge." },
-];
-
-const DOCUMENTS = [
-  { id: 1, name: "Rent Agreement — Dec 2024 to Nov 2025.pdf", category: "Lease", type: "pdf", size: "1.2 MB", date: "01 Dec 2024", sharedWithTenant: true },
-  { id: 2, name: "Police Verification Certificate.pdf", category: "KYC", type: "pdf", size: "640 KB", date: "01 Dec 2024", sharedWithTenant: false },
-  { id: 3, name: "Rent Receipt — April 2025.pdf", category: "Receipt", type: "pdf", size: "148 KB", date: "01 Apr 2025", sharedWithTenant: true },
-  { id: 4, name: "Rent Receipt — March 2025.pdf", category: "Receipt", type: "pdf", size: "148 KB", date: "04 Mar 2025", sharedWithTenant: true },
-  { id: 5, name: "Society NOC — Nov 2024.pdf", category: "Legal", type: "pdf", size: "822 KB", date: "28 Nov 2024", sharedWithTenant: false },
-  { id: 6, name: "Property Registration Certificate.pdf", category: "Legal", type: "pdf", size: "3.2 MB", date: "15 Jan 2020", sharedWithTenant: false },
-  { id: 7, name: "Property Photos — High Res.zip", category: "Media", type: "zip", size: "18.4 MB", date: "18 Jan 2024", sharedWithTenant: false },
-];
-
-const ACTIVITY = [
-  { id: 1, type: "payment", icon: "💰", color: "#2D7D46", text: "Riya Sharma paid ₹29,200 for April 2025", detail: "Transaction ID: HDFC-84729312", time: "Apr 1, 2025 · 8:30 AM" },
-  { id: 2, type: "maintenance", icon: "🔧", color: "#C47B1A", text: "Maintenance request raised: Bathroom water seepage", detail: "Priority: High · Assigned to Raju Plumber", time: "Apr 5, 2025 · 9:14 AM" },
-  { id: 3, type: "system", icon: "📋", color: "#1e3a5f", text: "Lease renewal reminder sent to tenant", detail: "Lease expires Nov 30, 2025 — 237 days", time: "Apr 3, 2025 · 12:00 PM" },
-  { id: 4, type: "payment", icon: "💰", color: "#2D7D46", text: "Riya Sharma paid ₹29,200 for March 2025", detail: "Transaction ID: HDFC-72918341", time: "Mar 4, 2025 · 11:18 AM" },
-  { id: 5, type: "maintenance", icon: "✅", color: "#2D7D46", text: "Maintenance resolved: Light fitting in living room", detail: "Cost: ₹650 · Sunil Electrician", time: "Mar 30, 2025 · 12:00 PM" },
-  { id: 6, type: "payment", icon: "💰", color: "#2D7D46", text: "Riya Sharma paid ₹29,200 for February 2025", detail: "Transaction ID: HDFC-61827430", time: "Feb 3, 2025 · 10:30 AM" },
-  { id: 7, type: "system", icon: "📝", color: "#B8943F", text: "Lease agreement signed digitally by both parties", detail: "Agreement ID: MH-REG-2024-004821", time: "Dec 1, 2024 · 3:00 PM" },
-  { id: 8, type: "system", icon: "🏠", color: "#1e3a5f", text: "Tenant moved in — Riya Sharma", detail: "Key handover completed", time: "Dec 3, 2024 · 11:00 AM" },
-];
-
-const REVENUE_MONTHS = [
-  { m: "Dec 24", collected: 29200, expected: 29200 },
-  { m: "Jan 25", collected: 29200, expected: 29200 },
-  { m: "Feb 25", collected: 29200, expected: 29200 },
-  { m: "Mar 25", collected: 29200, expected: 29200 },
-  { m: "Apr 25", collected: 29200, expected: 29200 },
-  { m: "May 25", collected: 0, expected: 29200 },
-];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = n => n != null ? new Intl.NumberFormat("en-IN").format(n) : "—";
@@ -99,7 +76,7 @@ const daysUntil = d => {
   const value = Math.ceil((new Date(d) - new Date()) / 86400000);
   return Number.isFinite(value) ? value : null;
 };
-const leaseProgress = (tenant = TENANT) => {
+const leaseProgress = (tenant = {}) => {
   if (!tenant?.leaseStart || !tenant?.leaseEnd) return 0;
   const total = new Date(tenant.leaseEnd) - new Date(tenant.leaseStart);
   if (!Number.isFinite(total) || total <= 0) return 0;
@@ -159,7 +136,7 @@ const toRulesArray = (value, fallback) => {
   return fallback;
 };
 
-const mapPropertyForDetail = (property, fallback = PROPERTY) => {
+const mapPropertyForDetail = (property, fallback = EMPTY_PROPERTY) => {
   if (!property) return fallback;
 
   return {
@@ -205,7 +182,7 @@ const mapPropertyForDetail = (property, fallback = PROPERTY) => {
 };
 
 const mapMaintenanceForDetail = (rows) => {
-  if (!Array.isArray(rows) || rows.length === 0) return MAINTENANCE;
+  if (!Array.isArray(rows) || rows.length === 0) return [];
   return rows.map((row, index) => ({
     id: row.id || index + 1,
     title: normalizeText(row.title || row.subject || row.issue, "Maintenance request"),
@@ -219,8 +196,8 @@ const mapMaintenanceForDetail = (rows) => {
   }));
 };
 
-const mapPaymentsForDetail = (rows, fallbackRent = PROPERTY.rent, fallbackMaintenance = PROPERTY.maintenanceCharges) => {
-  if (!Array.isArray(rows) || rows.length === 0) return PAYMENTS;
+const mapPaymentsForDetail = (rows, fallbackRent = 0, fallbackMaintenance = 0) => {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
   return rows.map((row, index) => {
     const amount = Number(row.amount || row.rent_amount || row.rent || fallbackRent || 0);
     const maintenance = Number(row.maintenance || row.maintenance_amount || fallbackMaintenance || 0);
@@ -240,7 +217,7 @@ const mapPaymentsForDetail = (rows, fallbackRent = PROPERTY.rent, fallbackMainte
 };
 
 const mapDocumentsForDetail = (rows) => {
-  if (!Array.isArray(rows) || rows.length === 0) return DOCUMENTS;
+  if (!Array.isArray(rows) || rows.length === 0) return [];
   return rows.map((row, index) => ({
     id: row.id || index + 1,
     name: normalizeText(row.name || row.file_name, `Document ${index + 1}`),
@@ -253,37 +230,39 @@ const mapDocumentsForDetail = (rows) => {
 };
 
 const mapTenantForDetail = (activeTenancy) => {
-  if (!activeTenancy) return TENANT;
+  if (!activeTenancy) return EMPTY_TENANT;
   return {
-    ...TENANT,
-    leaseStart: activeTenancy.lease_start || TENANT.leaseStart,
-    leaseEnd: activeTenancy.lease_end || TENANT.leaseEnd,
-    paymentStatus: normalizeText(activeTenancy.payment_status, TENANT.paymentStatus),
-    status: normalizeText(activeTenancy.status, TENANT.status),
-    moveInDate: activeTenancy.move_in_date || TENANT.moveInDate,
+    ...EMPTY_TENANT,
+    leaseStart: activeTenancy.lease_start || EMPTY_TENANT.leaseStart,
+    leaseEnd: activeTenancy.lease_end || EMPTY_TENANT.leaseEnd,
+    paymentStatus: normalizeText(activeTenancy.payment_status, EMPTY_TENANT.paymentStatus),
+    status: normalizeText(activeTenancy.status, EMPTY_TENANT.status),
+    moveInDate: activeTenancy.move_in_date || EMPTY_TENANT.moveInDate,
   };
 };
 
 // ─── Mini Sparkline ───────────────────────────────────────────────────────────
 function Sparkline({ data, color = "var(--navy)", height = 36 }) {
-  const max = Math.max(...data, 1);
+  const safeData = Array.isArray(data) && data.length ? data : [0];
+  const max = Math.max(...safeData, 1);
   const W = 140, H = height;
-  const pts = data.map((v, i) => `${(i / (data.length - 1)) * W},${H - (v / max) * H}`).join(" ");
+  const pts = safeData.map((v, i) => `${(i / (safeData.length - 1 || 1)) * W},${H - (v / max) * H}`).join(" ");
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ overflow: "visible" }}>
       <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
-      {data.map((v, i) => <circle key={i} cx={(i / (data.length - 1)) * W} cy={H - (v / max) * H} r="3" fill={color} />)}
+      {safeData.map((v, i) => <circle key={i} cx={(i / (safeData.length - 1 || 1)) * W} cy={H - (v / max) * H} r="3" fill={color} />)}
     </svg>
   );
 }
 
 // ─── Revenue MiniChart ────────────────────────────────────────────────────────
 function RevenueChart({ data }) {
-  const max = Math.max(...data.map(d => d.expected)) * 1.1;
+  const safeData = Array.isArray(data) && data.length ? data : [{ m: "-", collected: 0, expected: 0 }];
+  const max = Math.max(...safeData.map(d => d.expected), 1) * 1.1;
   const W = 360, H = 120, padL = 48, padB = 24, padT = 8, padR = 8;
   const plotW = W - padL - padR, plotH = H - padB - padT;
-  const bw = (plotW / data.length) * 0.32;
-  const gap = plotW / data.length;
+  const bw = (plotW / safeData.length) * 0.32;
+  const gap = plotW / safeData.length;
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto" }}>
@@ -295,7 +274,7 @@ function RevenueChart({ data }) {
           </text>
         </g>
       ))}
-      {data.map((d, i) => {
+      {safeData.map((d, i) => {
         const cx = padL + i * gap + gap / 2;
         const expH = (d.expected / max) * plotH;
         const colH = (d.collected / max) * plotH;
@@ -347,6 +326,7 @@ const TABS = ["Overview", "Tenant", "Payments", "Maintenance", "Documents", "Act
 
 // ─── OVERVIEW TAB ─────────────────────────────────────────────────────────────
 function OverviewTab({ onNavigate, property, tenant, payments, maintenance, revenueMonths }) {
+  const hasTenant = Boolean(tenant?.id);
   const lp = leaseProgress(tenant);
   const daysLeft = daysUntil(tenant.leaseEnd);
   const totalRevenue = payments.filter(p => p.status === "paid").reduce((s, p) => s + p.total, 0);
@@ -379,8 +359,8 @@ function OverviewTab({ onNavigate, property, tenant, payments, maintenance, reve
         <div>
           <div className="lease-progress-card" style={{ marginBottom: 18 }}>
             <div className="lp-label">Active Lease</div>
-            <div className="lp-title">{tenant.name}</div>
-            <div className="lp-address">{fmtDate(tenant.leaseStart)} → {fmtDate(tenant.leaseEnd)}</div>
+            <div className="lp-title">{hasTenant ? tenant.name : "No active tenant"}</div>
+            <div className="lp-address">{hasTenant ? `${fmtDate(tenant.leaseStart)} → ${fmtDate(tenant.leaseEnd)}` : "No active lease"}</div>
             <div className="lp-progress-row">
               <span>Lease progress</span>
               <span>{lp}% elapsed · {daysLeft == null ? "—" : `${daysLeft} days left`}</span>
@@ -396,7 +376,10 @@ function OverviewTab({ onNavigate, property, tenant, payments, maintenance, reve
           {/* Revenue chart */}
           <div className="card">
             <div className="card-header"><div className="card-title">Revenue — Last 6 Months</div><div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--gold)", fontWeight: 600 }}>₹{fmt(property.rent)}<span style={{ color: "var(--text-lite)", fontWeight: 400 }}>/mo</span></div></div>
-            <div className="card-body" style={{ paddingTop: 12 }}><RevenueChart data={revenueMonths} /></div>
+            <div className="card-body" style={{ paddingTop: 12 }}>
+              <RevenueChart data={revenueMonths} />
+              {!revenueMonths.length && <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-lite)" }}>No payment history yet.</div>}
+            </div>
           </div>
         </div>
 
@@ -424,7 +407,9 @@ function OverviewTab({ onNavigate, property, tenant, payments, maintenance, reve
               <div className="divider" style={{ margin: "14px 0" }} />
               <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.15em", color: "var(--text-lite)", textTransform: "uppercase", marginBottom: 10 }}>Amenities</div>
               <div className="chips-row">
-                {property.amenities.map(a => <span key={a} className="chip-small">{a}</span>)}
+                {property.amenities.length
+                  ? property.amenities.map(a => <span key={a} className="chip-small">{a}</span>)
+                  : <span style={{ fontSize: 12.5, color: "var(--text-lite)" }}>No amenities listed</span>}
               </div>
             </div>
           </div>
@@ -457,12 +442,16 @@ function OverviewTab({ onNavigate, property, tenant, payments, maintenance, reve
         <div className="card-header"><div className="card-title">House Rules</div></div>
         <div className="card-body">
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {property.houseRules.map((r, i) => (
-              <div key={i} style={{ display: "flex", gap: 12, padding: "10px 14px", background: "var(--surface)", borderRadius: 4, border: "1px solid var(--border)" }}>
-                <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-lite)", fontWeight: 600, marginTop: 1 }}>{String(i + 1).padStart(2, "0")}</span>
-                <span style={{ fontSize: 13.5, color: "var(--text)" }}>{r}</span>
-              </div>
-            ))}
+            {property.houseRules.length ? (
+              property.houseRules.map((r, i) => (
+                <div key={i} style={{ display: "flex", gap: 12, padding: "10px 14px", background: "var(--surface)", borderRadius: 4, border: "1px solid var(--border)" }}>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-lite)", fontWeight: 600, marginTop: 1 }}>{String(i + 1).padStart(2, "0")}</span>
+                  <span style={{ fontSize: 13.5, color: "var(--text)" }}>{r}</span>
+                </div>
+              ))
+            ) : (
+              <div style={{ fontSize: 12.5, color: "var(--text-lite)" }}>No house rules added.</div>
+            )}
           </div>
         </div>
       </div>
@@ -474,25 +463,32 @@ function OverviewTab({ onNavigate, property, tenant, payments, maintenance, reve
 function TenantTab({ property, tenant }) {
   const daysLeft = daysUntil(tenant.leaseEnd);
   const lp = leaseProgress(tenant);
+  const hasTenant = Boolean(tenant?.id);
   return (
     <>
       {/* Tenant hero */}
       <div style={{ background: "var(--white)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden", marginBottom: 20, boxShadow: "var(--shadow-sm)" }}>
         <div style={{ background: "linear-gradient(135deg, var(--navy) 0%, var(--navy-lite) 100%)", padding: "24px 28px", display: "flex", alignItems: "center", gap: 18 }}>
           <div style={{ width: 60, height: 60, borderRadius: "50%", background: "rgba(184,148,63,0.25)", border: "2px solid rgba(184,148,63,0.4)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--serif)", fontSize: 22, color: "var(--gold)", fontWeight: 600, flexShrink: 0 }}>
-            {tenant.initials}
+            {hasTenant ? tenant.initials : "—"}
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: "var(--serif)", fontSize: 22, fontWeight: 600, color: "#fff" }}>{tenant.name}</div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginTop: 3 }}>{tenant.occupation}</div>
+            <div style={{ fontFamily: "var(--serif)", fontSize: 22, fontWeight: 600, color: "#fff" }}>{hasTenant ? tenant.name : "No active tenant"}</div>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginTop: 3 }}>{hasTenant ? tenant.occupation : "Assign a tenant to see details."}</div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <span className="badge badge-green"><span className="badge-dot" />Active Tenant</span>
-            {tenant.policeVerified && <span className="badge" style={{ background: "rgba(30,58,95,0.5)", color: "#7eb8ff" }}>✓ Police Verified</span>}
+            {hasTenant ? (
+              <>
+                <span className="badge badge-green"><span className="badge-dot" />Active Tenant</span>
+                {tenant.policeVerified && <span className="badge" style={{ background: "rgba(30,58,95,0.5)", color: "#7eb8ff" }}>✓ Police Verified</span>}
+              </>
+            ) : (
+              <span className="badge badge-grey">No tenant assigned</span>
+            )}
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", borderTop: "1px solid var(--border)" }}>
-          {[["Monthly Rent", `₹${fmt(property.rent)}`, true], ["Lease Remaining", daysLeft == null ? "—" : `${daysLeft} days`, daysLeft == null ? true : daysLeft > 90], ["Monthly Income", `₹${fmt(tenant.monthlyIncome)}`, true], ["Payment History", "100% On Time", true]].map(([l, v, good]) => (
+          {[["Monthly Rent", `₹${fmt(property.rent)}`, true], ["Lease Remaining", daysLeft == null ? "—" : `${daysLeft} days`, daysLeft == null ? true : daysLeft > 90], ["Monthly Income", hasTenant ? `₹${fmt(tenant.monthlyIncome)}` : "—", true], ["Payment History", hasTenant ? "See payments" : "—", true]].map(([l, v, good]) => (
             <div key={l} style={{ padding: "16px 20px", borderRight: "1px solid var(--border)" }}>
               <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.15em", color: "var(--text-lite)", textTransform: "uppercase", marginBottom: 5 }}>{l}</div>
               <div style={{ fontFamily: "var(--serif)", fontSize: 18, fontWeight: 600, color: good ? "var(--navy)" : "var(--amber)" }}>{v}</div>
@@ -587,22 +583,28 @@ function PaymentsTab({ property, payments }) {
           <table className="data-table">
             <thead><tr><th>Period</th><th>Rent</th><th>Maintenance</th><th>Total</th><th>Due Date</th><th>Paid Date</th><th>Status</th><th>Receipt</th></tr></thead>
             <tbody>
-              {payments.map(p => (
-                <tr key={p.id}>
-                  <td className="td-primary">{p.month}</td>
-                  <td className="td-mono">₹{fmt(p.amount)}</td>
-                  <td className="td-mono">₹{fmt(p.maintenance)}</td>
-                  <td className="td-mono" style={{ fontWeight: 700, color: "var(--navy)" }}>₹{fmt(p.total)}</td>
-                  <td style={{ fontSize: 12.5, color: "var(--text-mid)" }}>{fmtDate(p.dueDate)}</td>
-                  <td style={{ fontSize: 12.5 }}>{p.paidDate ? fmtDate(p.paidDate) : <span style={{ color: "var(--text-lite)", fontStyle: "italic" }}>Pending</span>}</td>
-                  <td>
-                    <span className={`badge ${p.status === "paid" ? "badge-green" : p.status === "upcoming" ? "badge-navy" : "badge-red"}`}>
-                      <span className="badge-dot" />{p.status === "paid" ? "Paid" : p.status === "upcoming" ? "Upcoming" : "Overdue"}
-                    </span>
-                  </td>
-                  <td>{p.receipt ? <button className="btn-secondary" style={{ padding: "4px 9px", fontSize: 11 }}>↓ {p.receipt.split("-").slice(0, 2).join("-")}</button> : <span style={{ color: "var(--text-lite)", fontSize: 12 }}>—</span>}</td>
+              {payments.length ? (
+                payments.map(p => (
+                  <tr key={p.id}>
+                    <td className="td-primary">{p.month}</td>
+                    <td className="td-mono">₹{fmt(p.amount)}</td>
+                    <td className="td-mono">₹{fmt(p.maintenance)}</td>
+                    <td className="td-mono" style={{ fontWeight: 700, color: "var(--navy)" }}>₹{fmt(p.total)}</td>
+                    <td style={{ fontSize: 12.5, color: "var(--text-mid)" }}>{fmtDate(p.dueDate)}</td>
+                    <td style={{ fontSize: 12.5 }}>{p.paidDate ? fmtDate(p.paidDate) : <span style={{ color: "var(--text-lite)", fontStyle: "italic" }}>Pending</span>}</td>
+                    <td>
+                      <span className={`badge ${p.status === "paid" ? "badge-green" : p.status === "upcoming" ? "badge-navy" : "badge-red"}`}>
+                        <span className="badge-dot" />{p.status === "paid" ? "Paid" : p.status === "upcoming" ? "Upcoming" : "Overdue"}
+                      </span>
+                    </td>
+                    <td>{p.receipt ? <button className="btn-secondary" style={{ padding: "4px 9px", fontSize: 11 }}>↓ {p.receipt.split("-").slice(0, 2).join("-")}</button> : <span style={{ color: "var(--text-lite)", fontSize: 12 }}>—</span>}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="8" style={{ padding: "18px 12px", textAlign: "center", color: "var(--text-lite)" }}>No payments recorded yet.</td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
@@ -634,39 +636,43 @@ function MaintenanceTab({ maintenance }) {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {maintenance.map(req => {
-          const [cls, lbl] = statusCfg[req.status] || [];
-          const isOpen = expanded === req.id;
-          return (
-            <div key={req.id} className="card">
-              <div style={{ padding: "16px 20px", cursor: "pointer", display: "flex", gap: 14, alignItems: "flex-start" }} onClick={() => setExpanded(isOpen ? null : req.id)}>
-                <span style={{ fontSize: 22, flexShrink: 0 }}>{catIcon[req.category] || "🔨"}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                    <div style={{ fontFamily: "var(--serif)", fontSize: 15, fontWeight: 600, color: "var(--navy)" }}>{req.title}</div>
-                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                      <span className={`badge ${cls}`}><span className="badge-dot" />{lbl}</span>
-                      <span className="badge" style={{ background: req.priority === "high" ? "var(--red-bg)" : req.priority === "medium" ? "var(--amber-bg)" : "var(--green-bg)", color: priColor[req.priority] }}>{req.priority}</span>
+        {maintenance.length ? (
+          maintenance.map(req => {
+            const [cls, lbl] = statusCfg[req.status] || [];
+            const isOpen = expanded === req.id;
+            return (
+              <div key={req.id} className="card">
+                <div style={{ padding: "16px 20px", cursor: "pointer", display: "flex", gap: 14, alignItems: "flex-start" }} onClick={() => setExpanded(isOpen ? null : req.id)}>
+                  <span style={{ fontSize: 22, flexShrink: 0 }}>{catIcon[req.category] || "🔨"}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                      <div style={{ fontFamily: "var(--serif)", fontSize: 15, fontWeight: 600, color: "var(--navy)" }}>{req.title}</div>
+                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                        <span className={`badge ${cls}`}><span className="badge-dot" />{lbl}</span>
+                        <span className="badge" style={{ background: req.priority === "high" ? "var(--red-bg)" : req.priority === "medium" ? "var(--amber-bg)" : "var(--green-bg)", color: priColor[req.priority] }}>{req.priority}</span>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: "var(--text-lite)", marginTop: 4 }}>{req.category} · {fmtDate(req.date)}{req.assignedTo ? ` · ${req.assignedTo}` : ""}{req.cost != null ? ` · ₹${fmt(req.cost)}` : ""}</div>
+                    {!isOpen && <div style={{ fontSize: 12.5, color: "var(--text-mid)", marginTop: 5, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{req.desc}</div>}
+                  </div>
+                  <span style={{ color: "var(--text-lite)", fontSize: 12, flexShrink: 0 }}>{isOpen ? "▲" : "▼"}</span>
+                </div>
+                {isOpen && (
+                  <div style={{ padding: "0 20px 18px", borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+                    <p style={{ fontSize: 13.5, color: "var(--text-mid)", lineHeight: 1.6, marginBottom: 16 }}>{req.desc}</p>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {req.status !== "resolved" && <button className="btn-primary" style={{ fontSize: 12, padding: "6px 14px" }}>Mark Resolved</button>}
+                      <button className="btn-secondary" style={{ fontSize: 12, padding: "6px 14px" }}>Add Note</button>
+                      {req.assignedTo && <button className="btn-secondary" style={{ fontSize: 12, padding: "6px 14px" }}>Reassign</button>}
                     </div>
                   </div>
-                  <div style={{ fontSize: 12.5, color: "var(--text-lite)", marginTop: 4 }}>{req.category} · {fmtDate(req.date)}{req.assignedTo ? ` · ${req.assignedTo}` : ""}{req.cost != null ? ` · ₹${fmt(req.cost)}` : ""}</div>
-                  {!isOpen && <div style={{ fontSize: 12.5, color: "var(--text-mid)", marginTop: 5, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{req.desc}</div>}
-                </div>
-                <span style={{ color: "var(--text-lite)", fontSize: 12, flexShrink: 0 }}>{isOpen ? "▲" : "▼"}</span>
+                )}
               </div>
-              {isOpen && (
-                <div style={{ padding: "0 20px 18px", borderTop: "1px solid var(--border)", paddingTop: 14 }}>
-                  <p style={{ fontSize: 13.5, color: "var(--text-mid)", lineHeight: 1.6, marginBottom: 16 }}>{req.desc}</p>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    {req.status !== "resolved" && <button className="btn-primary" style={{ fontSize: 12, padding: "6px 14px" }}>Mark Resolved</button>}
-                    <button className="btn-secondary" style={{ fontSize: 12, padding: "6px 14px" }}>Add Note</button>
-                    {req.assignedTo && <button className="btn-secondary" style={{ fontSize: 12, padding: "6px 14px" }}>Reassign</button>}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+            );
+          })
+        ) : (
+          <div className="card" style={{ padding: "18px 20px", color: "var(--text-lite)" }}>No maintenance requests yet.</div>
+        )}
       </div>
 
       <div style={{ marginTop: 20 }}>
@@ -684,11 +690,18 @@ function DocumentsTab({ documents }) {
   const [filter, setFilter] = useState("all");
   const cats = [...new Set(documents.map(d => d.category))];
   const list = filter === "all" ? documents : documents.filter(d => d.category === filter);
+  const counts = documents.reduce((acc, doc) => {
+    const key = String(doc.category || "").trim().toLowerCase();
+    if (!key) return acc;
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const countLabel = (value, noun) => `${value} ${noun}${value === 1 ? "" : "s"}`;
 
   return (
     <>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 22 }}>
-        {[["📋", "Lease Agreement", "1 document", "var(--navy)"], ["🧾", "Rent Receipts", "4 receipts", "var(--green)"], ["⚖️", "Legal Docs", "2 documents", "var(--gold)"], ["🖼️", "Media", "1 archive", "var(--blue)"]].map(([ic, l, sub, clr]) => (
+        {[["📋", "Lease Agreements", countLabel(counts.lease || 0, "document"), "var(--navy)"], ["🧾", "Rent Receipts", countLabel(counts.receipt || 0, "receipt"), "var(--green)"], ["⚖️", "Legal Docs", countLabel(counts.legal || 0, "document"), "var(--gold)"], ["🖼️", "Media", countLabel(counts.media || 0, "file"), "var(--blue)"]].map(([ic, l, sub, clr]) => (
           <div key={l} style={{ background: "var(--white)", border: "1px solid var(--border)", borderRadius: 8, padding: "16px 18px", boxShadow: "var(--shadow-sm)", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", transition: "box-shadow 0.15s" }}>
             <div style={{ width: 40, height: 40, borderRadius: 8, background: `color-mix(in srgb, ${clr} 11%, transparent)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{ic}</div>
             <div><div style={{ fontWeight: 600, color: "var(--navy)", fontSize: 13.5 }}>{l}</div><div style={{ fontSize: 11.5, color: "var(--text-lite)", marginTop: 2 }}>{sub}</div></div>
@@ -707,19 +720,23 @@ function DocumentsTab({ documents }) {
       </div>
 
       <div className="doc-list">
-        {list.map(d => (
-          <div key={d.id} className="doc-row">
-            <div className="doc-icon doc-icon-pdf">{d.type === "zip" ? "🗜" : "📄"}</div>
-            <div className="doc-info">
-              <div className="doc-name">{d.name}</div>
-              <div className="doc-meta">{d.category} · {d.size} · Added {d.date}</div>
+        {list.length ? (
+          list.map(d => (
+            <div key={d.id} className="doc-row">
+              <div className="doc-icon doc-icon-pdf">{d.type === "zip" ? "🗜" : "📄"}</div>
+              <div className="doc-info">
+                <div className="doc-name">{d.name}</div>
+                <div className="doc-meta">{d.category} · {d.size} · Added {d.date}</div>
+              </div>
+              {d.sharedWithTenant
+                ? <span className="badge badge-green" style={{ marginRight: 8, fontSize: 11 }}><span className="badge-dot" />Shared with Tenant</span>
+                : <span className="badge badge-grey" style={{ marginRight: 8, fontSize: 11 }}>Owner Only</span>}
+              <button className="btn-secondary" style={{ padding: "6px 12px", fontSize: 12 }}>↓ Download</button>
             </div>
-            {d.sharedWithTenant
-              ? <span className="badge badge-green" style={{ marginRight: 8, fontSize: 11 }}><span className="badge-dot" />Shared with Tenant</span>
-              : <span className="badge badge-grey" style={{ marginRight: 8, fontSize: 11 }}>Owner Only</span>}
-            <button className="btn-secondary" style={{ padding: "6px 12px", fontSize: 12 }}>↓ Download</button>
-          </div>
-        ))}
+          ))
+        ) : (
+          <div className="card" style={{ padding: "18px 20px", color: "var(--text-lite)" }}>No documents uploaded yet.</div>
+        )}
       </div>
     </>
   );
@@ -738,21 +755,25 @@ function ActivityTab({ activity }) {
       </div>
       <div className="card">
         <div style={{ padding: "8px 20px 20px" }}>
-          <div className="activity-feed">
-            {list.map((a, i) => (
-              <div key={a.id} className="activity-item">
-                <div className="activity-dot-wrap">
-                  <div style={{ width: 30, height: 30, borderRadius: "50%", background: `color-mix(in srgb, ${a.color} 15%, transparent)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>{a.icon}</div>
-                  {i < list.length - 1 && <div className="activity-line" style={{ marginTop: 4 }} />}
+          {list.length ? (
+            <div className="activity-feed">
+              {list.map((a, i) => (
+                <div key={a.id} className="activity-item">
+                  <div className="activity-dot-wrap">
+                    <div style={{ width: 30, height: 30, borderRadius: "50%", background: `color-mix(in srgb, ${a.color} 15%, transparent)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>{a.icon}</div>
+                    {i < list.length - 1 && <div className="activity-line" style={{ marginTop: 4 }} />}
+                  </div>
+                  <div className="activity-content">
+                    <div className="activity-text">{a.text}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-lite)", marginTop: 2 }}>{a.detail}</div>
+                    <div className="activity-time">{a.time}</div>
+                  </div>
                 </div>
-                <div className="activity-content">
-                  <div className="activity-text">{a.text}</div>
-                  <div style={{ fontSize: 12, color: "var(--text-lite)", marginTop: 2 }}>{a.detail}</div>
-                  <div className="activity-time">{a.time}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ padding: "16px 0", color: "var(--text-lite)" }}>No activity yet.</div>
+          )}
         </div>
       </div>
     </>
@@ -762,8 +783,9 @@ function ActivityTab({ activity }) {
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 export default function PropertyDetail({ propertyId = 1, onNavigate }) {
   const routerNavigate = useNavigate();
+  const location = useLocation();
   const { propertyId: propertyIdParam } = useParams();
-  const resolvedPropertyId = Number(propertyIdParam || propertyId || 1);
+  const resolvedPropertyId = propertyIdParam || propertyId || "";
   const nav = onNavigate || ((action, id) => {
     if (action === "list") {
       routerNavigate("/owner/properties");
@@ -781,11 +803,11 @@ export default function PropertyDetail({ propertyId = 1, onNavigate }) {
   const [showNotif, setShowNotif] = useState(false);
   const [loadingProperty, setLoadingProperty] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [propertyData, setPropertyData] = useState(PROPERTY);
-  const [tenantData, setTenantData] = useState(TENANT);
-  const [paymentsData, setPaymentsData] = useState(PAYMENTS);
-  const [maintenanceData, setMaintenanceData] = useState(MAINTENANCE);
-  const [documentsData, setDocumentsData] = useState(DOCUMENTS);
+  const [propertyData, setPropertyData] = useState(EMPTY_PROPERTY);
+  const [tenantData, setTenantData] = useState(EMPTY_TENANT);
+  const [paymentsData, setPaymentsData] = useState([]);
+  const [maintenanceData, setMaintenanceData] = useState([]);
+  const [documentsData, setDocumentsData] = useState([]);
 
   useEffect(() => {
     let active = true;
@@ -794,10 +816,13 @@ export default function PropertyDetail({ propertyId = 1, onNavigate }) {
       setLoadingProperty(true);
       setLoadError("");
       try {
+        if (!resolvedPropertyId) {
+          throw new Error("Missing property id.");
+        }
         const response = await getOwnerPropertyById(resolvedPropertyId);
         if (!active) return;
 
-        const mappedProperty = mapPropertyForDetail(response?.property, PROPERTY);
+        const mappedProperty = mapPropertyForDetail(response?.property, EMPTY_PROPERTY);
         const mappedTenant = mapTenantForDetail(response?.activeTenancy);
 
         setPropertyData(mappedProperty);
@@ -807,11 +832,11 @@ export default function PropertyDetail({ propertyId = 1, onNavigate }) {
         setDocumentsData(mapDocumentsForDetail(response?.documents));
       } catch (error) {
         if (!active) return;
-        setPropertyData(PROPERTY);
-        setTenantData(TENANT);
-        setPaymentsData(PAYMENTS);
-        setMaintenanceData(MAINTENANCE);
-        setDocumentsData(DOCUMENTS);
+        setPropertyData(EMPTY_PROPERTY);
+        setTenantData(EMPTY_TENANT);
+        setPaymentsData([]);
+        setMaintenanceData([]);
+        setDocumentsData([]);
         setLoadError(error?.message || "Unable to load live property details.");
       } finally {
         if (active) setLoadingProperty(false);
@@ -825,7 +850,7 @@ export default function PropertyDetail({ propertyId = 1, onNavigate }) {
   }, [resolvedPropertyId]);
 
   const revenueMonthsData = useMemo(() => {
-    if (!Array.isArray(paymentsData) || paymentsData.length === 0) return REVENUE_MONTHS;
+    if (!Array.isArray(paymentsData) || paymentsData.length === 0) return [];
     const recent = paymentsData.slice(0, 6).reverse();
     return recent.map((payment, index) => ({
       m: payment.month || `M${index + 1}`,
@@ -856,7 +881,7 @@ export default function PropertyDetail({ propertyId = 1, onNavigate }) {
     }));
 
     const combined = [...maintenanceActivity, ...paymentActivity];
-    return combined.length ? combined : ACTIVITY;
+    return combined;
   }, [maintenanceData, paymentsData]);
 
   const openMaintenance = maintenanceData.filter(m => m.status !== "resolved").length;
@@ -870,12 +895,17 @@ export default function PropertyDetail({ propertyId = 1, onNavigate }) {
           <svg viewBox="0 0 32 32" fill="none" width="26" height="26"><rect x="2" y="14" width="10" height="16" stroke="#B8943F" strokeWidth="1.5" /><rect x="14" y="8" width="10" height="22" stroke="#B8943F" strokeWidth="1.5" /><rect x="26" y="18" width="4" height="12" stroke="#B8943F" strokeWidth="1.5" /><line x1="2" y1="14" x2="30" y2="14" stroke="#B8943F" strokeWidth="1" /></svg>
         </div>
         {[
-          ["M3 9l9-7 9 7v11H5z", true],
-          ["M3 9l9-7 9 7v11H5z", false],
-          ["M17 21v-2a4 4 0 0 0-4-4H5", false],
-          ["M14.7 6.3l1.6 1.6 3.77-3.77", false],
-        ].map(([d, active], idx) => (
-          <div key={idx} className={`nav-item${active ? " active" : ""}`} style={{ justifyContent: "center", padding: "12px" }}>
+          ["M3 9l9-7 9 7v11H5z", "/owner/dashboard"],
+          ["M3 9l9-7 9 7v11H5z", "/owner/properties"],
+          ["M17 21v-2a4 4 0 0 0-4-4H5", "/owner/leases"],
+          ["M14.7 6.3l1.6 1.6 3.77-3.77", "/owner/maintenance"],
+        ].map(([d, path]) => (
+          <div
+            key={path}
+            className={`nav-item${location.pathname.startsWith(path) ? " active" : ""}`}
+            style={{ justifyContent: "center", padding: "12px", cursor: "pointer" }}
+            onClick={() => routerNavigate(path)}
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" width="18" height="18"><path d={d} /></svg>
           </div>
         ))}
@@ -889,7 +919,7 @@ export default function PropertyDetail({ propertyId = 1, onNavigate }) {
             <div className="header-title">{propertyData.title}</div>
             <div className="header-subtitle">{propertyData.address}</div>
             {loadingProperty && <div style={{ fontSize: 11.5, color: "var(--text-lite)", marginTop: 2 }}>Loading live details...</div>}
-            {loadError && <div style={{ fontSize: 11.5, color: "var(--amber)", marginTop: 2 }}>{loadError} Showing fallback data.</div>}
+            {loadError && <div style={{ fontSize: 11.5, color: "var(--amber)", marginTop: 2 }}>{loadError}</div>}
           </div>
           <div className="header-actions" style={{ position: "relative" }}>
             <button className="btn-secondary" style={{ fontSize: 12, padding: "6px 14px" }} onClick={() => nav("edit", resolvedPropertyId)}>
@@ -911,10 +941,12 @@ export default function PropertyDetail({ propertyId = 1, onNavigate }) {
                   <div><div className="notif-text"><strong>{openMaintenance}</strong> open maintenance request{openMaintenance > 1 ? "s" : ""}</div><div className="notif-time">Tap to view</div></div>
                 </div>
               )}
-              <div className="notif-item">
-                <div className="notif-avatar" style={{ fontSize: 16 }}>📋</div>
-                <div><div className="notif-text">Lease expires <strong>{fmtDate(tenantData.leaseEnd)}</strong> ({leaseDaysLeft == null ? "—" : leaseDaysLeft} days)</div><div className="notif-time">Renewal reminder scheduled</div></div>
-              </div>
+              {tenantData.leaseEnd && (
+                <div className="notif-item">
+                  <div className="notif-avatar" style={{ fontSize: 16 }}>📋</div>
+                  <div><div className="notif-text">Lease expires <strong>{fmtDate(tenantData.leaseEnd)}</strong> ({leaseDaysLeft == null ? "—" : leaseDaysLeft} days)</div><div className="notif-time">Renewal reminder scheduled</div></div>
+                </div>
+              )}
             </div>
           )}
         </header>

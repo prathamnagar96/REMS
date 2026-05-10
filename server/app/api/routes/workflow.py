@@ -4,6 +4,7 @@ import re
 from datetime import date, datetime, timezone
 from typing import Any, Literal
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, EmailStr, Field
 from supabase import Client
@@ -24,6 +25,14 @@ TENANCIES_TABLE = os.getenv("SUPABASE_TENANCIES_TABLE", "tenancies")
 PAYMENTS_TABLE = os.getenv("SUPABASE_PAYMENTS_TABLE", "rent_payments")
 MAINTENANCE_TABLE = os.getenv("SUPABASE_MAINTENANCE_TABLE", "maintenance_requests")
 DOCUMENTS_TABLE = os.getenv("SUPABASE_DOCUMENTS_TABLE", "property_documents")
+
+GEOCODE_PROVIDER = os.getenv("GEOCODE_PROVIDER", "nominatim").strip().lower()
+GEOCODE_API_KEY = os.getenv("GEOCODE_API_KEY", "").strip()
+GEOCODE_USER_AGENT = os.getenv(
+    "GEOCODE_USER_AGENT",
+    "rems-app/1.0 (contact: admin@example.com)",
+).strip()
+GEOCODE_ENABLED = os.getenv("GEOCODE_ENABLED", "true").strip().lower() not in {"false", "0", "no"}
 
 
 class OwnerPropertyPayload(BaseModel):
@@ -53,18 +62,45 @@ class OwnerPropertyPayload(BaseModel):
     maintenanceCharges: str | float | int | None = None
     minLease: str | int | None = None
     houseRules: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class VisitRequestPayload(BaseModel):
     preferredDate: str | None = None
     preferredTimeSlot: str | None = None
     note: str | None = None
+    fullName: str | None = None
+    email: EmailStr | None = None
+    phone: str | None = None
 
 
 class StayApplicationPayload(BaseModel):
     moveInDate: str | None = None
     leaseMonths: int | None = None
     offeredRent: float | None = None
+    note: str | None = None
+    fullName: str | None = None
+    email: EmailStr | None = None
+    phone: str | None = None
+
+
+class TenantVideoReviewPayload(BaseModel):
+    decision: Literal["accept", "decline"]
+    note: str | None = None
+
+
+class TenantMoveOutVideoPayload(BaseModel):
+    videoUrl: str
+    capturedAt: str | None = None
+    geoLat: float | None = None
+    geoLng: float | None = None
+    geoAccuracy: float | None = None
+    note: str | None = None
+
+
+class OwnerMoveOutReviewPayload(BaseModel):
+    status: Literal["accepted", "rejected"]
     note: str | None = None
 
 
@@ -198,11 +234,156 @@ def _to_date(value: Any) -> date | None:
         return None
 
 
+def _to_datetime(value: Any) -> datetime | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def _coalesce(*values: Any) -> Any:
     for value in values:
         if value not in (None, ""):
             return value
     return None
+
+
+def _build_geocode_query(payload: OwnerPropertyPayload) -> str:
+    parts = [
+        payload.address,
+        payload.city,
+        payload.state,
+        payload.pincode,
+        payload.propertyCountry,
+    ]
+    cleaned = [str(part).strip() for part in parts if part not in (None, "") and str(part).strip()]
+    return ", ".join(cleaned)
+
+
+async def _geocode_address(address: str) -> tuple[float | None, float | None]:
+    if not address or not GEOCODE_ENABLED:
+        return None, None
+
+    if GEOCODE_PROVIDER == "google":
+        if not GEOCODE_API_KEY:
+            return None, None
+        url = "https://maps.googleapis.com/maps/api/geocode/json"
+        params = {"address": address, "key": GEOCODE_API_KEY}
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            payload = response.json()
+        if payload.get("status") != "OK" or not payload.get("results"):
+            return None, None
+        location = payload["results"][0].get("geometry", {}).get("location", {})
+        return _to_float(location.get("lat")), _to_float(location.get("lng"))
+
+    url = "https://nominatim.openstreetmap.org/search"
+    params = {"q": address, "format": "json", "limit": 1}
+    headers = {"User-Agent": GEOCODE_USER_AGENT}
+    async with httpx.AsyncClient(timeout=8.0, headers=headers) as client:
+        response = await client.get(url, params=params)
+        response.raise_for_status()
+        payload = response.json()
+    if not payload:
+        return None, None
+    return _to_float(payload[0].get("lat")), _to_float(payload[0].get("lon"))
+
+
+async def _apply_geocode_if_missing(
+    property_payload: dict[str, Any],
+    source: OwnerPropertyPayload,
+) -> dict[str, Any]:
+    if not GEOCODE_ENABLED:
+        return property_payload
+    if property_payload.get("latitude") is not None and property_payload.get("longitude") is not None:
+        return property_payload
+    address = _build_geocode_query(source)
+    if not address:
+        return property_payload
+    try:
+        latitude, longitude = await _geocode_address(address)
+    except Exception as exc:  # pragma: no cover - do not block writes
+        logger.warning("Geocode failed for '%s': %s", address, exc)
+        return property_payload
+    if latitude is None or longitude is None:
+        return property_payload
+    property_payload["latitude"] = latitude
+    property_payload["longitude"] = longitude
+    return property_payload
+
+
+def _media_type_value(row: dict[str, Any]) -> str:
+    raw = _coalesce(
+        row.get("media_type"),
+        row.get("type"),
+        row.get("category"),
+        row.get("tag"),
+        row.get("label"),
+        row.get("kind"),
+    )
+    return str(raw or "").strip().lower()
+
+
+def _media_url_value(row: dict[str, Any]) -> str | None:
+    return _coalesce(
+        row.get("media_url"),
+        row.get("url"),
+        row.get("file_url"),
+        row.get("video_url"),
+        row.get("link"),
+        row.get("media_link"),
+    )
+
+
+def _is_handover_media(row: dict[str, Any]) -> bool:
+    media_type = _media_type_value(row)
+    if media_type and any(token in media_type for token in ("handover", "move_out", "moveout", "checkout", "exit")):
+        return True
+    note = str(_coalesce(row.get("note"), row.get("description")) or "").lower()
+    if any(token in note for token in ("handover", "move-out", "move out", "checkout")):
+        return True
+    return bool(row.get("tenant_id") and _media_url_value(row))
+
+
+def _media_timestamp(row: dict[str, Any]) -> datetime:
+    return _to_datetime(_coalesce(row.get("captured_at"), row.get("created_at"), row.get("updated_at"))) or datetime.min
+
+
+def _shape_handover_media(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row.get("id"),
+        "url": _media_url_value(row),
+        "capturedAt": _coalesce(row.get("captured_at"), row.get("created_at"), row.get("updated_at")),
+        "geoLat": _to_float(_coalesce(row.get("geo_lat"), row.get("latitude"), row.get("lat"))),
+        "geoLng": _to_float(_coalesce(row.get("geo_lng"), row.get("longitude"), row.get("lng"))),
+        "geoAccuracy": _to_float(_coalesce(row.get("geo_accuracy"), row.get("accuracy"))),
+        "note": _coalesce(row.get("note"), row.get("description")),
+    }
+
+
+def _latest_handover_by_property(media_rows: list[dict[str, Any]]) -> dict[Any, dict[str, Any]]:
+    latest: dict[Any, dict[str, Any]] = {}
+    for row in media_rows:
+        if not _is_handover_media(row):
+            continue
+        property_id = row.get("property_id")
+        if property_id in (None, ""):
+            continue
+        current = latest.get(property_id)
+        if not current or _media_timestamp(row) > _media_timestamp(current):
+            latest[property_id] = row
+    return latest
 
 
 def _period_label(value: Any) -> str:
@@ -837,6 +1018,38 @@ def _optional_insert_resilient(*, client: Client, table: str, payload: dict[str,
     )
 
 
+def _optional_update_resilient(
+    *,
+    client: Client,
+    table: str,
+    payload: dict[str, Any],
+    filters: list[tuple[str, Any]],
+) -> dict[str, Any] | None:
+    working_payload = dict(payload)
+    attempts = 0
+    max_attempts = max(len(working_payload), 1)
+
+    while attempts < max_attempts:
+        attempts += 1
+        try:
+            return _required_update(
+                client=client,
+                table=table,
+                payload=working_payload,
+                filters=filters,
+            )
+        except HTTPException as exc:
+            missing_column = _extract_unknown_column(str(exc.detail))
+            if missing_column and missing_column in working_payload:
+                working_payload.pop(missing_column, None)
+                if not working_payload:
+                    return None
+                continue
+            raise
+
+    return None
+
+
 def _required_update(
     *,
     client: Client,
@@ -894,6 +1107,17 @@ def _serialize_property(property_row: dict[str, Any], term_row: dict[str, Any] |
         "maintenanceCharges": terms.get("maintenance_charges"),
         "minLease": terms.get("min_agreement_months"),
         "houseRules": terms.get("house_rules"),
+        "listedAt": _coalesce(property_row.get("listed_at"), property_row.get("listedAt"), property_row.get("created_at")),
+        "views": _to_int(_coalesce(property_row.get("views"), property_row.get("view_count"), property_row.get("viewCount"))) or 0,
+        "inquiries": _to_int(_coalesce(property_row.get("inquiries"), property_row.get("inquiry_count"), property_row.get("inquiryCount"))) or 0,
+        "rating": _to_float(_coalesce(property_row.get("rating"), property_row.get("tenant_rating"), property_row.get("tenantRating"))) or 0,
+        "registrationNo": _coalesce(property_row.get("registration_no"), property_row.get("registrationNo")),
+        "latitude": _to_float(
+            _coalesce(property_row.get("latitude"), property_row.get("lat"), property_row.get("geo_lat"))
+        ),
+        "longitude": _to_float(
+            _coalesce(property_row.get("longitude"), property_row.get("lng"), property_row.get("geo_lng"))
+        ),
     }
 
 
@@ -921,6 +1145,8 @@ def _build_property_payload(owner_id: Any, payload: OwnerPropertyPayload) -> dic
             "available_from": payload.availableFrom,
             "description": payload.description,
             "amenities": payload.amenities,
+            "latitude": _to_float(payload.latitude),
+            "longitude": _to_float(payload.longitude),
         }
     )
 
@@ -936,6 +1162,40 @@ def _build_terms_payload(property_id: Any, payload: OwnerPropertyPayload) -> dic
             "house_rules": payload.houseRules,
         }
     )
+
+
+def _increment_property_views(*, client: Client, property_row: dict[str, Any]) -> dict[str, Any] | None:
+    if not property_row:
+        return None
+
+    property_id = property_row.get("id")
+    if property_id in (None, ""):
+        return None
+
+    view_field = None
+    for candidate in ("views", "view_count", "viewCount"):
+        if candidate in property_row:
+            view_field = candidate
+            break
+
+    if not view_field:
+        return None
+
+    current = _to_int(property_row.get(view_field)) or 0
+    payload = {view_field: current + 1}
+    if "updated_at" in property_row:
+        payload["updated_at"] = _now_iso()
+
+    updated = _optional_update_resilient(
+        client=client,
+        table=PROPERTIES_TABLE,
+        payload=payload,
+        filters=[("id", property_id)],
+    )
+    if updated and view_field in updated:
+        property_row[view_field] = updated.get(view_field)
+
+    return updated
 
 
 def _get_property_terms_map(*, client: Client, property_ids: list[Any]) -> dict[Any, dict[str, Any]]:
@@ -1019,6 +1279,16 @@ async def get_owner_property(
         table=DOCUMENTS_TABLE,
         filters=[("eq", "property_id", property_id)],
     )
+    visit_rows = _safe_select(
+        client=client,
+        table=VISIT_REQUESTS_TABLE,
+        filters=[("eq", "property_id", property_id)],
+    )
+    application_rows = _safe_select(
+        client=client,
+        table=STAY_APPLICATIONS_TABLE,
+        filters=[("eq", "property_id", property_id)],
+    )
 
     tenancy_rows = _safe_select(
         client=client,
@@ -1034,8 +1304,13 @@ async def get_owner_property(
         None,
     )
 
+    property_payload = _serialize_property(property_row, term_row)
+    inquiries_total = len(visit_rows) + len(application_rows)
+    current_inquiries = _to_int(property_payload.get("inquiries")) or 0
+    property_payload["inquiries"] = max(current_inquiries, inquiries_total)
+
     return {
-        "property": _serialize_property(property_row, term_row),
+        "property": property_payload,
         "media": media_rows,
         "activeTenancy": active_tenancy,
         "payments": payments,
@@ -1052,6 +1327,7 @@ async def create_owner_property(
 ):
     owner_id = owner.get("id")
     property_payload = _build_property_payload(owner_id, payload)
+    property_payload = await _apply_geocode_if_missing(property_payload, payload)
     property_row = _required_insert(client=client, table=PROPERTIES_TABLE, payload=property_payload)
 
     terms_payload = _build_terms_payload(property_row.get("id"), payload)
@@ -1075,6 +1351,7 @@ async def update_owner_property(
 
     property_payload = _build_property_payload(owner_id, payload)
     property_payload.pop("owner_id", None)
+    property_payload = await _apply_geocode_if_missing(property_payload, payload)
     property_row = _required_update(
         client=client,
         table=PROPERTIES_TABLE,
@@ -1146,13 +1423,13 @@ async def owner_dashboard(
     visit_requests = _safe_select(
         client=client,
         table=VISIT_REQUESTS_TABLE,
-        filters=[("eq", "owner_id", owner_id)],
-    )
+        filters=[("in", "property_id", property_ids)] if property_ids else None,
+    ) if property_ids else []
     applications = _safe_select(
         client=client,
         table=STAY_APPLICATIONS_TABLE,
-        filters=[("eq", "owner_id", owner_id)],
-    )
+        filters=[("in", "property_id", property_ids)] if property_ids else None,
+    ) if property_ids else []
 
     pending_visits = sum(1 for row in visit_requests if str(row.get("status", "")).lower() == "pending")
     pending_applications = sum(1 for row in applications if str(row.get("status", "")).lower() == "pending")
@@ -1234,6 +1511,7 @@ async def get_tenant_property_detail(
         )
 
     property_row = property_rows[0]
+    _increment_property_views(client=client, property_row=property_row)
     owner_id = property_row.get("owner_id")
 
     term_rows = _required_select(
@@ -1255,6 +1533,12 @@ async def get_tenant_property_detail(
         table=PROPERTY_MEDIA_TABLE,
         filters=[("eq", "property_id", property_id)],
     )
+    latest_handover = None
+    for row in media_rows:
+        if not _is_handover_media(row):
+            continue
+        if not latest_handover or _media_timestamp(row) > _media_timestamp(latest_handover):
+            latest_handover = row
 
     return {
         "property": _serialize_property(property_row, term_row),
@@ -1265,6 +1549,7 @@ async def get_tenant_property_detail(
             "phone": _coalesce(owner_row.get("phone"), owner_row.get("phone_number")),
         },
         "mediaCount": len(media_rows),
+        "handoverVideo": _shape_handover_media(latest_handover) if latest_handover else None,
     }
 
 
@@ -1287,6 +1572,9 @@ async def create_visit_request(
         )
 
     property_row = property_rows[0]
+    tenant_name = _coalesce(payload.fullName, tenant.get("full_name"), tenant.get("fullName"), tenant.get("name"))
+    tenant_email = _coalesce(payload.email, tenant.get("email"))
+    tenant_phone = _coalesce(payload.phone, tenant.get("phone"), tenant.get("phone_number"))
     visit_payload = _compact_dict(
         {
             "property_id": property_id,
@@ -1296,10 +1584,13 @@ async def create_visit_request(
             "preferred_date": payload.preferredDate,
             "preferred_time_slot": payload.preferredTimeSlot,
             "note": payload.note,
+            "tenant_name": tenant_name,
+            "tenant_email": tenant_email,
+            "tenant_phone": tenant_phone,
             "created_at": _now_iso(),
         }
     )
-    visit_row = _optional_insert(client=client, table=VISIT_REQUESTS_TABLE, payload=visit_payload)
+    visit_row = _optional_insert_resilient(client=client, table=VISIT_REQUESTS_TABLE, payload=visit_payload)
     return {"message": "Visit request submitted", "visitRequest": visit_row}
 
 
@@ -1322,20 +1613,57 @@ async def create_stay_application(
         )
 
     property_row = property_rows[0]
+    tenant_id = tenant.get("id")
+    existing_apps = _safe_select(
+        client=client,
+        table=STAY_APPLICATIONS_TABLE,
+        filters=[("eq", "property_id", property_id), ("eq", "tenant_id", tenant_id)],
+    )
+    if existing_apps:
+        blocked_statuses = {
+            "pending",
+            "approved",
+            "active",
+            "under_review",
+            "in_review",
+            "accepted",
+            "video_accepted",
+            "handover_pending",
+        }
+        allow_retry_statuses = {"rejected", "cancelled", "withdrawn"}
+        for app in existing_apps:
+            status_value = str(app.get("status") or "pending").strip().lower()
+            if status_value in allow_retry_statuses:
+                continue
+            if status_value in blocked_statuses or status_value:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="You already have an active application for this property.",
+                )
+
+    tenant_name = _coalesce(payload.fullName, tenant.get("full_name"), tenant.get("fullName"), tenant.get("name"))
+    tenant_email = _coalesce(payload.email, tenant.get("email"))
+    tenant_phone = _coalesce(payload.phone, tenant.get("phone"), tenant.get("phone_number"))
     application_payload = _compact_dict(
         {
             "property_id": property_id,
             "owner_id": property_row.get("owner_id"),
-            "tenant_id": tenant.get("id"),
+            "tenant_id": tenant_id,
             "status": "pending",
             "requested_move_in_date": payload.moveInDate,
             "requested_lease_months": payload.leaseMonths,
             "offered_rent": payload.offeredRent,
             "note": payload.note,
+            "property_title": property_row.get("property_name"),
+            "property_city": property_row.get("city"),
+            "property_address": property_row.get("address"),
+            "tenant_name": tenant_name,
+            "tenant_email": tenant_email,
+            "tenant_phone": tenant_phone,
             "created_at": _now_iso(),
         }
     )
-    application_row = _optional_insert(client=client, table=STAY_APPLICATIONS_TABLE, payload=application_payload)
+    application_row = _optional_insert_resilient(client=client, table=STAY_APPLICATIONS_TABLE, payload=application_payload)
     return {"message": "Stay application submitted", "application": application_row}
 
 
@@ -1361,10 +1689,21 @@ async def list_tenant_applications(
         filters=[("in", "id", property_ids)] if property_ids else None,
     ) if property_ids else []
     property_map = {row.get("id"): row for row in properties}
+    media_rows = _safe_select(
+        client=client,
+        table=PROPERTY_MEDIA_TABLE,
+        filters=[("in", "property_id", property_ids)] if property_ids else None,
+    ) if property_ids else []
+    handover_by_property = _latest_handover_by_property(media_rows)
 
     shaped = []
     for app in applications:
         property_row = property_map.get(app.get("property_id"), {})
+        property_title = _coalesce(property_row.get("property_name"), app.get("property_title"), "Property")
+        property_city = _coalesce(property_row.get("city"), app.get("property_city"))
+        property_address = _coalesce(property_row.get("address"), app.get("property_address"))
+        handover_media = handover_by_property.get(app.get("property_id"))
+        video_review_status = _coalesce(app.get("video_review_status"), app.get("videoReviewStatus"))
         shaped.append(
             {
                 "id": app.get("id"),
@@ -1375,12 +1714,18 @@ async def list_tenant_applications(
                 "offeredRent": app.get("offered_rent"),
                 "createdAt": app.get("created_at"),
                 "reviewedAt": app.get("reviewed_at"),
-                "ownerComment": app.get("owner_comment"),
+                "ownerComment": _coalesce(app.get("owner_comment"), app.get("comment"), app.get("owner_note")),
+                "leaseStart": _coalesce(app.get("lease_start"), app.get("leaseStart")),
+                "leaseEnd": _coalesce(app.get("lease_end"), app.get("leaseEnd")),
+                "monthlyRent": _coalesce(app.get("monthly_rent"), app.get("monthlyRent")),
+                "securityDeposit": _coalesce(app.get("security_deposit"), app.get("securityDeposit")),
+                "videoReviewStatus": video_review_status,
+                "handoverVideo": _shape_handover_media(handover_media) if handover_media else None,
                 "property": {
                     "id": property_row.get("id"),
-                    "title": property_row.get("property_name"),
-                    "city": property_row.get("city"),
-                    "address": property_row.get("address"),
+                    "title": property_title,
+                    "city": property_city,
+                    "address": property_address,
                 },
             }
         )
@@ -1395,7 +1740,18 @@ async def list_owner_applications(
     owner: dict[str, Any] = Depends(require_owner),
     client: Client = Depends(get_supabase_client),
 ):
-    filters: list[tuple[str, str, Any]] = [("eq", "owner_id", owner.get("id"))]
+    owner_id = owner.get("id")
+    owner_properties = _required_select(
+        client=client,
+        table=PROPERTIES_TABLE,
+        filters=[("eq", "owner_id", owner_id)],
+    )
+    owner_property_ids = [row.get("id") for row in owner_properties if row.get("id") not in (None, "")]
+
+    if not owner_property_ids:
+        return {"items": [], "count": 0}
+
+    filters: list[tuple[str, str, Any]] = [("in", "property_id", owner_property_ids)]
     if statusFilter:
         filters.append(("eq", "status", statusFilter))
 
@@ -1421,19 +1777,37 @@ async def list_owner_applications(
     for app in applications:
         property_row = property_map.get(app.get("property_id"), {})
         tenant_row = user_map.get(app.get("tenant_id"), {})
+        tenant_name = _coalesce(
+            tenant_row.get("full_name"),
+            tenant_row.get("fullName"),
+            tenant_row.get("name"),
+            app.get("tenant_name"),
+            "Tenant",
+        )
+        tenant_email = _coalesce(tenant_row.get("email"), app.get("tenant_email"))
+        tenant_phone = _coalesce(tenant_row.get("phone"), tenant_row.get("phone_number"), app.get("tenant_phone"))
+        property_title = _coalesce(property_row.get("property_name"), app.get("property_title"), "Property")
+        property_city = _coalesce(property_row.get("city"), app.get("property_city"))
+        video_review_status = _coalesce(app.get("video_review_status"), app.get("videoReviewStatus"))
         shaped.append(
             {
                 **app,
                 "property": {
                     "id": property_row.get("id"),
-                    "title": property_row.get("property_name"),
-                    "city": property_row.get("city"),
+                    "title": property_title,
+                    "city": property_city,
                 },
                 "tenant": {
                     "id": tenant_row.get("id"),
-                    "email": tenant_row.get("email"),
-                    "name": tenant_row.get("full_name") or tenant_row.get("fullName"),
+                    "email": tenant_email,
+                    "name": tenant_name,
+                    "phone": tenant_phone,
                 },
+                "leaseStart": _coalesce(app.get("lease_start"), app.get("leaseStart")),
+                "leaseEnd": _coalesce(app.get("lease_end"), app.get("leaseEnd")),
+                "monthlyRent": _coalesce(app.get("monthly_rent"), app.get("monthlyRent")),
+                "securityDeposit": _coalesce(app.get("security_deposit"), app.get("securityDeposit")),
+                "videoReviewStatus": video_review_status,
             }
         )
 
@@ -1448,10 +1822,17 @@ async def review_owner_application(
     client: Client = Depends(get_supabase_client),
 ):
     owner_id = owner.get("id")
+    owner_properties = _required_select(
+        client=client,
+        table=PROPERTIES_TABLE,
+        filters=[("eq", "owner_id", owner_id)],
+    )
+    owner_property_ids = {row.get("id") for row in owner_properties if row.get("id") not in (None, "")}
+
     applications = _safe_select(
         client=client,
         table=STAY_APPLICATIONS_TABLE,
-        filters=[("eq", "id", application_id), ("eq", "owner_id", owner_id)],
+        filters=[("eq", "id", application_id)],
     )
     if not applications:
         raise HTTPException(
@@ -1459,18 +1840,44 @@ async def review_owner_application(
             detail="Application not found",
         )
 
+    app = applications[0]
+    if app.get("property_id") not in owner_property_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Application not found",
+        )
+
+    comment_key = None
+    for key in ("owner_comment", "comment", "owner_note"):
+        if key in app:
+            comment_key = key
+            break
+
     update_payload = _compact_dict(
         {
             "status": payload.status,
-            "owner_comment": payload.comment,
+            (comment_key or "owner_comment"): payload.comment,
             "reviewed_at": _now_iso(),
         }
     )
-    updated = _required_update(
+    if payload.status == "approved":
+        update_payload.update(
+            _compact_dict(
+                {
+                    "lease_start": payload.leaseStart,
+                    "lease_end": payload.leaseEnd,
+                    "monthly_rent": payload.monthlyRent,
+                    "security_deposit": payload.securityDeposit,
+                    "video_review_status": "pending",
+                    "owner_approved_at": _now_iso(),
+                }
+            )
+        )
+    updated = _optional_update_resilient(
         client=client,
         table=STAY_APPLICATIONS_TABLE,
         payload=update_payload,
-        filters=[("id", application_id), ("owner_id", owner_id)],
+        filters=[("id", application_id)],
     )
     if not updated:
         raise HTTPException(
@@ -1478,29 +1885,149 @@ async def review_owner_application(
             detail="Application not found for update",
         )
 
+    return {
+        "message": "Application reviewed",
+        "application": updated,
+        "tenancy": None,
+    }
+
+
+@router.post("/tenant/applications/{application_id}/video-review", status_code=status.HTTP_200_OK)
+async def review_tenant_application_video(
+    application_id: str,
+    payload: TenantVideoReviewPayload,
+    tenant: dict[str, Any] = Depends(require_tenant),
+    client: Client = Depends(get_supabase_client),
+):
+    tenant_id = tenant.get("id")
+    applications = _safe_select(
+        client=client,
+        table=STAY_APPLICATIONS_TABLE,
+        filters=[("eq", "id", application_id)],
+    )
+    if not applications:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Application not found",
+        )
+
+    app = applications[0]
+    if str(app.get("tenant_id")) != str(tenant_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Application not found",
+        )
+
+    status_value = str(app.get("status") or "").strip().lower()
+    if status_value != "approved":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This application is not ready for video review.",
+        )
+
+    current_video_status = str(app.get("video_review_status") or "").strip().lower()
+    if current_video_status in {"accepted", "declined"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Video review is already completed for this application.",
+        )
+
+    property_id = app.get("property_id")
+    media_rows = _safe_select(
+        client=client,
+        table=PROPERTY_MEDIA_TABLE,
+        filters=[("eq", "property_id", property_id)] if property_id not in (None, "") else None,
+    ) if property_id not in (None, "") else []
+    handover_media = _latest_handover_by_property(media_rows).get(property_id)
+
+    if payload.decision == "decline":
+        update_payload = _compact_dict(
+            {
+                "status": "withdrawn",
+                "video_review_status": "declined",
+                "video_review_note": payload.note,
+                "video_reviewed_at": _now_iso(),
+            }
+        )
+        updated = _optional_update_resilient(
+            client=client,
+            table=STAY_APPLICATIONS_TABLE,
+            payload=update_payload,
+            filters=[("id", application_id)],
+        )
+        return {
+            "message": "Handover video declined",
+            "application": updated,
+        }
+
+    if not handover_media:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Handover video is not available yet.",
+        )
+
+    update_payload = _compact_dict(
+        {
+            "video_review_status": "accepted",
+            "video_review_note": payload.note,
+            "video_reviewed_at": _now_iso(),
+        }
+    )
+    updated = _optional_update_resilient(
+        client=client,
+        table=STAY_APPLICATIONS_TABLE,
+        payload=update_payload,
+        filters=[("id", application_id)],
+    )
+
     tenancy = None
-    if payload.status == "approved":
-        app = applications[0]
+    existing_tenancies = _safe_select(
+        client=client,
+        table=TENANCIES_TABLE,
+        filters=[("eq", "property_id", property_id), ("eq", "tenant_id", tenant_id)] if property_id not in (None, "") else None,
+    ) if property_id not in (None, "") else []
+    if existing_tenancies:
+        tenancy = existing_tenancies[0]
+    else:
         tenancy_payload = _compact_dict(
             {
-                "property_id": app.get("property_id"),
-                "owner_id": owner_id,
-                "tenant_id": app.get("tenant_id"),
+                "property_id": property_id,
+                "owner_id": app.get("owner_id"),
+                "tenant_id": tenant_id,
                 "status": "active",
-                "lease_start": payload.leaseStart,
-                "lease_end": payload.leaseEnd,
-                "monthly_rent": payload.monthlyRent,
-                "security_deposit": payload.securityDeposit,
+                "lease_start": _coalesce(app.get("lease_start"), app.get("requested_move_in_date")),
+                "lease_end": app.get("lease_end"),
+                "monthly_rent": _coalesce(app.get("monthly_rent"), app.get("offered_rent")),
+                "security_deposit": app.get("security_deposit"),
                 "source_application_id": app.get("id"),
                 "created_at": _now_iso(),
             }
         )
-        tenancy = _optional_insert(client=client, table=TENANCIES_TABLE, payload=tenancy_payload)
+        tenancy = _optional_insert_resilient(client=client, table=TENANCIES_TABLE, payload=tenancy_payload)
+
+    if property_id not in (None, ""):
+        property_rows = _required_select(
+            client=client,
+            table=PROPERTIES_TABLE,
+            filters=[("eq", "id", property_id)],
+        )
+        property_row = property_rows[0] if property_rows else None
+        if property_row and property_row.get("status") != "occupied":
+            property_update_payload = {"status": "occupied"}
+            if "updated_at" in property_row:
+                property_update_payload["updated_at"] = _now_iso()
+            _required_update(
+                client=client,
+                table=PROPERTIES_TABLE,
+                payload=property_update_payload,
+                filters=[("id", property_id)],
+            )
 
     return {
-        "message": "Application reviewed",
+        "message": "Handover video accepted",
         "application": updated,
         "tenancy": tenancy,
+        "handoverVideo": _shape_handover_media(handover_media),
     }
 
 
@@ -1591,6 +2118,74 @@ async def tenant_dashboard(
             "pendingApplications": len(pending_applications),
             "pendingVisitRequests": len(pending_visits),
         },
+    }
+
+
+@router.post("/tenant/tenancies/{tenancy_id}/move-out-video", status_code=status.HTTP_201_CREATED)
+async def submit_move_out_video(
+    tenancy_id: str,
+    payload: TenantMoveOutVideoPayload,
+    tenant: dict[str, Any] = Depends(require_tenant),
+    client: Client = Depends(get_supabase_client),
+):
+    tenant_id = tenant.get("id")
+    tenancies = _safe_select(
+        client=client,
+        table=TENANCIES_TABLE,
+        filters=[("eq", "id", tenancy_id)],
+    )
+    if not tenancies:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenancy not found",
+        )
+
+    tenancy = tenancies[0]
+    if str(tenancy.get("tenant_id")) != str(tenant_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenancy not found",
+        )
+
+    property_id = tenancy.get("property_id")
+    media_payload = _compact_dict(
+        {
+            "property_id": property_id,
+            "category": "handover",
+            "url": payload.videoUrl,
+            "tenancy_id": tenancy_id,
+            "tenant_id": tenant_id,
+            "media_type": "handover_video",
+            "media_url": payload.videoUrl,
+            "geo_lat": payload.geoLat,
+            "geo_lng": payload.geoLng,
+            "geo_accuracy": payload.geoAccuracy,
+            "captured_at": payload.capturedAt,
+            "note": payload.note,
+            "created_at": _now_iso(),
+        }
+    )
+    media_row = _optional_insert_resilient(client=client, table=PROPERTY_MEDIA_TABLE, payload=media_payload)
+
+    update_payload = _compact_dict(
+        {
+            "move_out_status": "submitted",
+            "move_out_video_id": media_row.get("id"),
+            "move_out_video_url": _media_url_value(media_row) or payload.videoUrl,
+            "move_out_requested_at": _now_iso(),
+        }
+    )
+    updated_tenancy = _optional_update_resilient(
+        client=client,
+        table=TENANCIES_TABLE,
+        payload=update_payload,
+        filters=[("id", tenancy_id)],
+    )
+
+    return {
+        "message": "Move-out video submitted",
+        "media": media_row,
+        "tenancy": updated_tenancy or tenancy,
     }
 
 
@@ -2045,11 +2640,31 @@ async def list_owner_leases(
     client: Client = Depends(get_supabase_client),
 ):
     owner_id = owner.get("id")
+    owner_properties = _required_select(
+        client=client,
+        table=PROPERTIES_TABLE,
+        filters=[("eq", "owner_id", owner_id)],
+    )
+    owner_property_ids = [row.get("id") for row in owner_properties if row.get("id") not in (None, "")]
+
+    if not owner_property_ids:
+        return {
+            "items": [],
+            "count": 0,
+            "summary": {
+                "total": 0,
+                "active": 0,
+                "expiringSoon": 0,
+                "noticeGiven": 0,
+                "renewalOffered": 0,
+                "monthlyRevenue": 0,
+            },
+        }
 
     tenancies = _safe_select(
         client=client,
         table=TENANCIES_TABLE,
-        filters=[("eq", "owner_id", owner_id)],
+        filters=[("in", "property_id", owner_property_ids)],
     )
 
     property_ids = sorted(
@@ -2072,9 +2687,16 @@ async def list_owner_leases(
         filters=[("in", "id", tenant_ids)] if tenant_ids else None,
     ) if tenant_ids else []
     terms_map = _get_property_terms_map(client=client, property_ids=property_ids)
+    media_rows = _safe_select(
+        client=client,
+        table=PROPERTY_MEDIA_TABLE,
+        filters=[("in", "property_id", property_ids)] if property_ids else None,
+    ) if property_ids else []
+    handover_by_property = _latest_handover_by_property(media_rows)
 
     property_map = {row.get("id"): row for row in properties}
     tenant_map = {row.get("id"): row for row in tenants}
+    tenancy_map = {str(row.get("id")): row for row in tenancies if row.get("id") not in (None, "")}
 
     shaped = [
         _shape_owner_lease(
@@ -2085,6 +2707,32 @@ async def list_owner_leases(
         )
         for row in tenancies
     ]
+    for item in shaped:
+        tenancy_row = tenancy_map.get(str(item.get("id")))
+        move_out_status = _coalesce(
+            tenancy_row.get("move_out_status") if tenancy_row else None,
+            tenancy_row.get("moveOutStatus") if tenancy_row else None,
+        )
+        move_out_video_row = None
+        if tenancy_row:
+            move_out_video_url = _coalesce(
+                tenancy_row.get("move_out_video_url"),
+                tenancy_row.get("moveOutVideoUrl"),
+            )
+            if move_out_video_url:
+                move_out_video_row = {
+                    "id": tenancy_row.get("move_out_video_id"),
+                    "media_url": move_out_video_url,
+                    "captured_at": tenancy_row.get("move_out_captured_at"),
+                    "geo_lat": tenancy_row.get("move_out_geo_lat"),
+                    "geo_lng": tenancy_row.get("move_out_geo_lng"),
+                    "geo_accuracy": tenancy_row.get("move_out_geo_accuracy"),
+                    "note": tenancy_row.get("move_out_note"),
+                }
+        if not move_out_video_row:
+            move_out_video_row = handover_by_property.get(item.get("propertyId"))
+        item["moveOutStatus"] = move_out_status
+        item["moveOutVideo"] = _shape_handover_media(move_out_video_row) if move_out_video_row else None
     shaped.sort(key=lambda item: _to_date(item.get("endDate")) or date.max)
 
     summary = {
@@ -2155,7 +2803,7 @@ async def create_owner_lease(
             "created_at": _now_iso(),
         }
     )
-    lease_row = _optional_insert(client=client, table=TENANCIES_TABLE, payload=tenancy_payload)
+    lease_row = _optional_insert_resilient(client=client, table=TENANCIES_TABLE, payload=tenancy_payload)
 
     if property_row and property_row.get("status") != "occupied":
         property_update_payload = {"status": "occupied"}
@@ -2212,10 +2860,17 @@ async def owner_lease_action(
     client: Client = Depends(get_supabase_client),
 ):
     owner_id = owner.get("id")
+    owner_properties = _required_select(
+        client=client,
+        table=PROPERTIES_TABLE,
+        filters=[("eq", "owner_id", owner_id)],
+    )
+    owner_property_ids = {row.get("id") for row in owner_properties if row.get("id") not in (None, "")}
+
     lease_rows = _safe_select(
         client=client,
         table=TENANCIES_TABLE,
-        filters=[("eq", "id", lease_id), ("eq", "owner_id", owner_id)],
+        filters=[("eq", "id", lease_id)],
     )
     if not lease_rows:
         raise HTTPException(
@@ -2224,6 +2879,11 @@ async def owner_lease_action(
         )
 
     current_row = lease_rows[0]
+    if current_row.get("property_id") not in owner_property_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lease not found",
+        )
     status_by_action = {
         "send_renewal": "renewal_offered",
         "send_notice": "notice_given",
@@ -2241,7 +2901,7 @@ async def owner_lease_action(
         client=client,
         table=TENANCIES_TABLE,
         payload=update_payload,
-        filters=[("id", lease_id), ("owner_id", owner_id)],
+        filters=[("id", lease_id)],
     )
     if not updated:
         raise HTTPException(
@@ -2283,24 +2943,92 @@ async def owner_lease_action(
     }
 
 
+@router.post("/owner/tenancies/{tenancy_id}/move-out-review", status_code=status.HTTP_200_OK)
+async def review_move_out_video(
+    tenancy_id: str,
+    payload: OwnerMoveOutReviewPayload,
+    owner: dict[str, Any] = Depends(require_owner),
+    client: Client = Depends(get_supabase_client),
+):
+    owner_id = owner.get("id")
+    tenancy_rows = _safe_select(
+        client=client,
+        table=TENANCIES_TABLE,
+        filters=[("eq", "id", tenancy_id)],
+    )
+    if not tenancy_rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenancy not found",
+        )
+
+    tenancy = tenancy_rows[0]
+    property_id = tenancy.get("property_id")
+    property_rows = _required_select(
+        client=client,
+        table=PROPERTIES_TABLE,
+        filters=[("eq", "id", property_id)] if property_id not in (None, "") else None,
+    ) if property_id not in (None, "") else []
+    property_row = property_rows[0] if property_rows else None
+
+    if not property_row or str(property_row.get("owner_id")) != str(owner_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenancy not found",
+        )
+
+    update_payload: dict[str, Any] = {
+        "move_out_status": payload.status,
+    }
+    if payload.status == "accepted":
+        update_payload["status"] = "terminated"
+        update_payload["move_out_confirmed_at"] = _now_iso()
+    if payload.note and "owner_comment" in tenancy:
+        update_payload["owner_comment"] = payload.note
+    if "updated_at" in tenancy:
+        update_payload["updated_at"] = _now_iso()
+
+    updated = _optional_update_resilient(
+        client=client,
+        table=TENANCIES_TABLE,
+        payload=update_payload,
+        filters=[("id", tenancy_id)],
+    )
+
+    if payload.status == "accepted" and property_row:
+        property_update_payload = {"status": "vacant"}
+        if "updated_at" in property_row:
+            property_update_payload["updated_at"] = _now_iso()
+        _required_update(
+            client=client,
+            table=PROPERTIES_TABLE,
+            payload=property_update_payload,
+            filters=[("id", property_id), ("owner_id", owner_id)],
+        )
+
+    return {
+        "message": "Move-out reviewed",
+        "tenancy": updated or tenancy,
+    }
+
+
 @router.get("/owner/payments", status_code=status.HTTP_200_OK)
 async def list_owner_payments(
     owner: dict[str, Any] = Depends(require_owner),
     client: Client = Depends(get_supabase_client),
 ):
     owner_id = owner.get("id")
-
-    tenancies = _safe_select(
+    owner_properties = _required_select(
         client=client,
-        table=TENANCIES_TABLE,
+        table=PROPERTIES_TABLE,
         filters=[("eq", "owner_id", owner_id)],
     )
-    property_ids = sorted(
-        {row.get("property_id") for row in tenancies if row.get("property_id") not in (None, "")},
+    owner_property_ids = sorted(
+        {row.get("id") for row in owner_properties if row.get("id") not in (None, "")},
         key=str,
     )
 
-    if not property_ids:
+    if not owner_property_ids:
         current_period = _period_label(date.today().isoformat())
         return {
             "items": [],
@@ -2327,10 +3055,17 @@ async def list_owner_payments(
             },
         }
 
+    tenancies = _safe_select(
+        client=client,
+        table=TENANCIES_TABLE,
+        filters=[("in", "property_id", owner_property_ids)],
+    )
+    property_ids = owner_property_ids
+
     payments = _safe_select(
         client=client,
         table=PAYMENTS_TABLE,
-        filters=[("in", "property_id", property_ids)],
+        filters=[("in", "property_id", property_ids)] if property_ids else None,
     )
 
     tenant_ids = {
@@ -2420,16 +3155,15 @@ async def record_owner_payment(
     client: Client = Depends(get_supabase_client),
 ):
     owner_id = owner.get("id")
-
-    tenancies = _safe_select(
+    owner_properties = _required_select(
         client=client,
-        table=TENANCIES_TABLE,
+        table=PROPERTIES_TABLE,
         filters=[("eq", "owner_id", owner_id)],
     )
     property_ids = {
-        row.get("property_id")
-        for row in tenancies
-        if row.get("property_id") not in (None, "")
+        row.get("id")
+        for row in owner_properties
+        if row.get("id") not in (None, "")
     }
 
     payment_rows = _safe_select(

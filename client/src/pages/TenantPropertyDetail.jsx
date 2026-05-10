@@ -51,6 +51,8 @@ export default function TenantPropertyDetail() {
 
     const property = data?.property || {};
     const owner = data?.owner || {};
+    const handoverVideo = data?.handoverVideo || null;
+    const handoverCapturedAt = handoverVideo?.capturedAt ? fmtDate(handoverVideo.capturedAt) : "-";
 
     const summaryItems = [
         ["Size", property.sizeCarpet ? `${property.sizeCarpet} sq.ft` : property.sizeBuiltup ? `${property.sizeBuiltup} sq.ft` : "-"],
@@ -135,44 +137,62 @@ export default function TenantPropertyDetail() {
                         </div>
 
                         {tab === "Overview" && (
-                            <div className="two-col">
-                                <div className="card">
-                                    <div className="card-header"><div className="card-title">Property Details</div></div>
-                                    <div className="card-body">
-                                        <div className="info-grid-3">
+                            <>
+                                <div className="two-col">
+                                    <div className="card">
+                                        <div className="card-header"><div className="card-title">Property Details</div></div>
+                                        <div className="card-body">
+                                            <div className="info-grid-3">
+                                                {[
+                                                    ["Type", normalizeText(property.propertyType)],
+                                                    ["Configuration", normalizeText(property.bhk)],
+                                                    ["Carpet Area", property.sizeCarpet ? `${property.sizeCarpet} sq.ft` : "-"],
+                                                    ["Built-up", property.sizeBuiltup ? `${property.sizeBuiltup} sq.ft` : "-"],
+                                                    ["Floor", property.floorNumber != null && property.totalFloors != null ? `${property.floorNumber}/${property.totalFloors}` : "-"],
+                                                    ["Facing", normalizeText(property.facing)],
+                                                    ["Furnishing", normalizeText(property.furnishing, "Unfurnished")],
+                                                    ["Parking", normalizeText(property.parking)],
+                                                    ["Available", normalizeText(property.availableFrom, "Immediate")],
+                                                ].map(([key, value]) => (
+                                                    <div key={key} className="info-item"><span className="info-key">{key}</span><span className="info-val-strong">{value}</span></div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="card">
+                                        <div className="card-header"><div className="card-title">Pricing</div></div>
+                                        <div className="card-body">
                                             {[
-                                                ["Type", normalizeText(property.propertyType)],
-                                                ["Configuration", normalizeText(property.bhk)],
-                                                ["Carpet Area", property.sizeCarpet ? `${property.sizeCarpet} sq.ft` : "-"],
-                                                ["Built-up", property.sizeBuiltup ? `${property.sizeBuiltup} sq.ft` : "-"],
-                                                ["Floor", property.floorNumber != null && property.totalFloors != null ? `${property.floorNumber}/${property.totalFloors}` : "-"],
-                                                ["Facing", normalizeText(property.facing)],
-                                                ["Furnishing", normalizeText(property.furnishing, "Unfurnished")],
-                                                ["Parking", normalizeText(property.parking)],
-                                                ["Available", normalizeText(property.availableFrom, "Immediate")],
+                                                ["Monthly Rent", `INR ${fmt(property.rent)}`],
+                                                ["Security Deposit", `INR ${fmt(property.deposit)}`],
+                                                ["Maintenance", `INR ${fmt(property.maintenanceCharges)} /mo`],
+                                                ["Minimum Lease", normalizeText(property.minLease, "11 months")],
                                             ].map(([key, value]) => (
-                                                <div key={key} className="info-item"><span className="info-key">{key}</span><span className="info-val-strong">{value}</span></div>
+                                                <div key={key} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: "1px solid var(--border)" }}>
+                                                    <span style={{ fontSize: 13, color: "var(--text-mid)" }}>{key}</span>
+                                                    <span style={{ fontWeight: 600, color: "var(--navy)", fontSize: 13 }}>{value}</span>
+                                                </div>
                                             ))}
                                         </div>
                                     </div>
                                 </div>
-                                <div className="card">
-                                    <div className="card-header"><div className="card-title">Pricing</div></div>
+                                <div className="card" style={{ marginTop: 20 }}>
+                                    <div className="card-header"><div className="card-title">Latest Handover Video</div></div>
                                     <div className="card-body">
-                                        {[
-                                            ["Monthly Rent", `INR ${fmt(property.rent)}`],
-                                            ["Security Deposit", `INR ${fmt(property.deposit)}`],
-                                            ["Maintenance", `INR ${fmt(property.maintenanceCharges)} /mo`],
-                                            ["Minimum Lease", normalizeText(property.minLease, "11 months")],
-                                        ].map(([key, value]) => (
-                                            <div key={key} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: "1px solid var(--border)" }}>
-                                                <span style={{ fontSize: 13, color: "var(--text-mid)" }}>{key}</span>
-                                                <span style={{ fontWeight: 600, color: "var(--navy)", fontSize: 13 }}>{value}</span>
+                                        {handoverVideo?.url ? (
+                                            <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center" }}>
+                                                <div style={{ fontSize: 13, color: "var(--text-mid)" }}>Captured: {handoverCapturedAt}</div>
+                                                {handoverVideo.note && (
+                                                    <div style={{ fontSize: 13, color: "var(--text-mid)" }}>Note: {handoverVideo.note}</div>
+                                                )}
+                                                <a className="btn-primary" style={{ fontSize: 12 }} href={handoverVideo.url} target="_blank" rel="noreferrer">View Video</a>
                                             </div>
-                                        ))}
+                                        ) : (
+                                            <div style={{ color: "var(--text-lite)", fontSize: 13 }}>No handover video available yet.</div>
+                                        )}
                                     </div>
                                 </div>
-                            </div>
+                            </>
                         )}
 
                         {tab === "Amenities" && (

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { getOwnerPayments, recordOwnerPayment } from "../services/apiClient";
 import "./Dashboard.css";
 import "./LeasePayments.css";
@@ -171,15 +172,29 @@ function TrendChart({ data }) {
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 function Sidebar() {
+  const navigate = useNavigate();
+  const location = useLocation();
   return (
     <aside className="dash-sidebar" style={{ width: 60 }}>
       <div style={{ padding: "18px 0", display: "flex", justifyContent: "center" }}>
         <svg viewBox="0 0 32 32" fill="none" width="26" height="26"><rect x="2" y="14" width="10" height="16" stroke="#B8943F" strokeWidth="1.5" /><rect x="14" y="8" width="10" height="22" stroke="#B8943F" strokeWidth="1.5" /><rect x="26" y="18" width="4" height="12" stroke="#B8943F" strokeWidth="1.5" /><line x1="2" y1="14" x2="30" y2="14" stroke="#B8943F" strokeWidth="1" /></svg>
       </div>
-      {[false, false, false, false, false, true].map((active, i) => (
-        <div key={i} className={`nav-item${active ? " active" : ""}`} style={{ justifyContent: "center", padding: "12px" }}>
+      {[
+        ["M3 9l9-7 9 7v11H5z", "/owner/dashboard"],
+        ["M3 9l9-7 9 7v11H5z", "/owner/properties"],
+        ["M17 21v-2a4 4 0 0 0-4-4H5", "/owner/leases"],
+        ["M14.7 6.3l1.6 1.6 3.77-3.77", "/owner/maintenance"],
+        ["M14 2H6a2 2 0 0 0-2 2v16h12a2 2 0 0 0 2-2V8z", "/owner/documents"],
+        ["M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5", "/owner/payments"],
+      ].map(([d, path]) => (
+        <div
+          key={path}
+          className={`nav-item${location.pathname.startsWith(path) ? " active" : ""}`}
+          style={{ justifyContent: "center", padding: "12px", cursor: "pointer" }}
+          onClick={() => navigate(path)}
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" width="18" height="18">
-            <path d={["M3 9l9-7 9 7v11H5z", "M3 9l9-7 9 7v11H5z", "M17 21v-2a4 4 0 0 0-4-4H5", "M14.7 6.3l1.6 1.6 3.77-3.77", "M14 2H6a2 2 0 0 0-2 2v16h12a2 2 0 0 0 2-2V8z", "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5"][i]} />
+            <path d={d} />
           </svg>
         </div>
       ))}

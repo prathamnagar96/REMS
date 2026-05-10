@@ -4,6 +4,7 @@ import re
 from typing import Any, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
 from pydantic import BaseModel, EmailStr, Field
 from supabase import Client
 
@@ -128,6 +129,11 @@ class OwnerRegistration(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    role: Literal["tenant", "owner"] = "tenant"
+
+
+class GoogleLoginRequest(BaseModel):
+    credential: str
     role: Literal["tenant", "owner"] = "tenant"
 
 
@@ -560,6 +566,61 @@ def _try_fetch_account(table: str, email: str, client: Client) -> dict[str, Any]
         raise
 
 
+async def _verify_google_id_token(credential: str) -> dict[str, Any]:
+    if not credential:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google credential is required",
+        )
+
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Google client ID is not configured",
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as http_client:
+            response = await http_client.get(
+                "https://oauth2.googleapis.com/tokeninfo",
+                params={"id_token": credential},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Google token verification failed: {exc}",
+        ) from exc
+
+    if response.status_code != status.HTTP_200_OK:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google credentials",
+        )
+
+    token_info = response.json() or {}
+    if token_info.get("aud") != client_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google token audience mismatch",
+        )
+
+    issuer = token_info.get("iss")
+    if issuer and issuer not in {"accounts.google.com", "https://accounts.google.com"}:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google token issuer",
+        )
+
+    if str(token_info.get("email_verified")).lower() != "true":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google account email is not verified",
+        )
+
+    return token_info
+
+
 @router.post("/tenant/register", status_code=status.HTTP_201_CREATED)
 async def register_tenant(
     registration: TenantRegistration,
@@ -673,6 +734,76 @@ async def login_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
+
+    if "full_name" in account and "fullName" not in account:
+        account["fullName"] = account["full_name"]
+    if "phone_country" in account and "phoneCountry" not in account:
+        account["phoneCountry"] = account["phone_country"]
+
+    try:
+        token = create_access_token(account["id"], additional_claims={"role": login.role})
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+    expires_in = ACCESS_TOKEN_EXPIRE_MINUTES * 60
+
+    return {
+        "message": "Login successful",
+        "role": login.role,
+        "profile": account,
+        "accessToken": token,
+        "expiresIn": expires_in,
+    }
+
+
+@router.post("/auth/google", status_code=status.HTTP_200_OK)
+async def google_login_user(
+    login: GoogleLoginRequest,
+    client: Client = Depends(get_supabase_client),
+):
+    token_info = await _verify_google_id_token(login.credential)
+    email = token_info.get("email")
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google token did not include an email address",
+        )
+
+    if SCHEMA_MODE == "normalized":
+        account = _fetch_user_by_email_normalized(email=str(email), client=client)
+        if not account:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="No account found for this email",
+            )
+
+        user_id = account.get("id")
+        if user_id in (None, ""):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Supabase returned user without id",
+            )
+
+        if not _normalized_user_has_role(user_id=str(user_id), role=login.role, client=client):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"No {login.role} account found for this email",
+            )
+    else:
+        table = TENANT_TABLE if login.role == "tenant" else OWNER_TABLE
+        account = _try_fetch_account(table, str(email), client)
+        if not account:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="No account found for this email",
+            )
+
+    if "password" in account:
+        account.pop("password", None)
+    if "password_hash" in account:
+        account.pop("password_hash", None)
 
     if "full_name" in account and "fullName" not in account:
         account["fullName"] = account["full_name"]

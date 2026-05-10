@@ -1,25 +1,9 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import * as THREE from "three";
 import { getOwnerProperties } from "../services/apiClient";
 import "./Dashboard.css";
 import "./Properties.css";
-
-// ─── MOCK DATA ────────────────────────────────────────────────────────────────
-const ALL_PROPERTIES = [
-  { id: 1, name: "Sunrise Heights 2BHK", address: "Plot 14, Andheri West", city: "Mumbai", state: "Maharashtra", pincode: "400053", type: "Apartment", bhk: "2 BHK", rent: 28000, deposit: 84000, size: 850, floor: 4, totalFloors: 12, furnished: "Semi", parking: "2-Wheeler", status: "occupied", tenant: "Riya Sharma", leaseEnd: "2025-11-30", createdAt: "2024-01-15", amenities: ["Lift", "Security", "CCTV", "Generator"], rating: 4.8, views: 124, inquiries: 6 },
-  { id: 2, name: "Green Valley Studio", address: "12B, Hiranandani", city: "Mumbai", state: "Maharashtra", pincode: "400076", type: "Studio", bhk: "Studio", rent: 18000, deposit: 36000, size: 420, floor: 2, totalFloors: 8, furnished: "Fully", parking: "None", status: "vacant", tenant: null, leaseEnd: null, createdAt: "2024-03-22", amenities: ["Lift", "WiFi", "CCTV"], rating: 4.5, views: 213, inquiries: 14 },
-  { id: 3, name: "Palm Court 3BHK", address: "Sea View CHS, Bandra West", city: "Mumbai", state: "Maharashtra", pincode: "400050", type: "Apartment", bhk: "3 BHK", rent: 55000, deposit: 165000, size: 1450, floor: 7, totalFloors: 15, furnished: "Fully", parking: "Covered", status: "occupied", tenant: "Arjun Mehta", leaseEnd: "2026-03-15", createdAt: "2023-11-08", amenities: ["Lift", "Gym", "Pool", "Security", "CCTV", "Generator", "Club House"], rating: 4.9, views: 88, inquiries: 3 },
-  { id: 4, name: "Skyline 1BHK", address: "Sector 7, Kharghar", city: "Navi Mumbai", state: "Maharashtra", pincode: "410210", type: "Apartment", bhk: "1 BHK", rent: 14500, deposit: 29000, size: 560, floor: 6, totalFloors: 18, furnished: "Semi", parking: "2-Wheeler", status: "notice", tenant: "Priya Nair", leaseEnd: "2025-07-31", createdAt: "2024-05-01", amenities: ["Lift", "Security"], rating: 4.2, views: 67, inquiries: 9 },
-  { id: 5, name: "Meadow Villa 4BHK", address: "NIBM Road", city: "Pune", state: "Maharashtra", pincode: "411048", type: "Independent House", bhk: "4 BHK", rent: 45000, deposit: 135000, size: 2200, floor: 0, totalFloors: 2, furnished: "Unfurnished", parking: "Both", status: "vacant", tenant: null, leaseEnd: null, createdAt: "2025-01-10", amenities: ["CCTV", "Generator", "Club House", "Gym"], rating: 4.7, views: 341, inquiries: 22 },
-  { id: 6, name: "Crystal Tower 2BHK", address: "Koregaon Park", city: "Pune", state: "Maharashtra", pincode: "411001", type: "Apartment", bhk: "2 BHK", rent: 32000, deposit: 96000, size: 920, floor: 9, totalFloors: 22, furnished: "Fully", parking: "Covered", status: "occupied", tenant: "Nikhil Joshi", leaseEnd: "2025-09-30", createdAt: "2024-07-18", amenities: ["Lift", "Gym", "Security", "CCTV"], rating: 4.6, views: 156, inquiries: 7 },
-  { id: 7, name: "Lakeview Studio", address: "Whitefield Main Rd", city: "Bengaluru", state: "Karnataka", pincode: "560066", type: "Studio", bhk: "Studio", rent: 22000, deposit: 44000, size: 480, floor: 3, totalFloors: 10, furnished: "Fully", parking: "None", status: "occupied", tenant: "Sneha Rao", leaseEnd: "2025-12-31", createdAt: "2024-09-05", amenities: ["Lift", "WiFi", "CCTV", "Gym"], rating: 4.3, views: 192, inquiries: 11 },
-  { id: 8, name: "Prestige 3BHK Penthouse", address: "Indiranagar 100ft Rd", city: "Bengaluru", state: "Karnataka", pincode: "560038", type: "Apartment", bhk: "3 BHK", rent: 78000, deposit: 234000, size: 1980, floor: 14, totalFloors: 14, furnished: "Fully", parking: "Covered", status: "vacant", tenant: null, leaseEnd: null, createdAt: "2025-02-20", amenities: ["Lift", "Gym", "Pool", "Security", "CCTV", "Generator", "Rooftop"], rating: 4.9, views: 428, inquiries: 31 },
-  { id: 9, name: "Magnolia 1BHK", address: "Electronic City Phase 2", city: "Bengaluru", state: "Karnataka", pincode: "560100", type: "Apartment", bhk: "1 BHK", rent: 16000, deposit: 32000, size: 510, floor: 5, totalFloors: 12, furnished: "Semi", parking: "2-Wheeler", status: "occupied", tenant: "Kiran Dev", leaseEnd: "2025-08-15", createdAt: "2024-06-30", amenities: ["Lift", "Security"], rating: 4.1, views: 79, inquiries: 4 },
-  { id: 10, name: "Emerald Heights 2BHK", address: "Anna Nagar West", city: "Chennai", state: "Tamil Nadu", pincode: "600040", type: "Apartment", bhk: "2 BHK", rent: 24000, deposit: 72000, size: 880, floor: 2, totalFloors: 6, furnished: "Semi", parking: "2-Wheeler", status: "occupied", tenant: "Pradeep Kumar", leaseEnd: "2026-01-15", createdAt: "2024-04-11", amenities: ["Security", "Generator", "CCTV"], rating: 4.4, views: 103, inquiries: 5 },
-  { id: 11, name: "Jubilee Hills PG Block", address: "Road No. 36, Jubilee Hills", city: "Hyderabad", state: "Telangana", pincode: "500033", type: "PG / Hostel", bhk: "Studio", rent: 8500, deposit: 17000, size: 180, floor: 1, totalFloors: 4, furnished: "Fully", parking: "None", status: "occupied", tenant: "Multiple", leaseEnd: "2025-10-01", createdAt: "2023-08-01", amenities: ["WiFi", "Security", "Laundry"], rating: 3.9, views: 512, inquiries: 48 },
-  { id: 12, name: "Banjara Commercial Space", address: "Banjara Hills Rd 12", city: "Hyderabad", state: "Telangana", pincode: "500034", type: "Commercial", bhk: "Studio", rent: 65000, deposit: 195000, size: 1200, floor: 3, totalFloors: 8, furnished: "Unfurnished", parking: "Both", status: "vacant", tenant: null, leaseEnd: null, createdAt: "2025-03-01", amenities: ["Lift", "Security", "Generator", "CCTV"], rating: 4.5, views: 287, inquiries: 19 },
-];
 
 const STATUS_CONFIG = {
   occupied: { label: "Occupied", cls: "badge-green", dot: "#2D7D46" },
@@ -82,10 +66,10 @@ const toListProperty = (item) => {
   const deposit = Number(item?.deposit || 0);
   const floorNumber = Number(item?.floorNumber || 0);
   const totalFloors = Number(item?.totalFloors || 1);
-  const id = Number(item?.id);
+  const id = item?.id;
 
   return {
-    id: Number.isFinite(id) ? id : item?.id,
+    id: id != null ? String(id) : "",
     name: normalizeString(item?.title, "Untitled Property"),
     address: normalizeString(item?.address, "Address not available"),
     city: normalizeString(item?.city, "Unknown City"),
@@ -119,6 +103,7 @@ function PortfolioSkyline({ properties }) {
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
+    if (!properties.length) return;
     const W = mount.clientWidth, H = mount.clientHeight;
     if (W === 0 || H === 0) return;
 
@@ -415,6 +400,7 @@ function TableRow({ property, onNavigate, index }) {
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function PropertiesList({ onNavigate }) {
   const routerNavigate = useNavigate();
+  const location = useLocation();
   const navigateAction = onNavigate || ((action, id) => {
     if (action === "new") {
       routerNavigate("/owner/properties/new");
@@ -434,10 +420,9 @@ export default function PropertiesList({ onNavigate }) {
   });
 
   // Filter state
-  const [properties, setProperties] = useState(ALL_PROPERTIES);
+  const [properties, setProperties] = useState([]);
   const [loadingProperties, setLoadingProperties] = useState(true);
   const [propertiesError, setPropertiesError] = useState("");
-  const [usingFallback, setUsingFallback] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatus] = useState("all");
   const [typeFilter, setType] = useState("all");
@@ -503,11 +488,9 @@ export default function PropertiesList({ onNavigate }) {
         const mapped = items.map(toListProperty);
         if (!active) return;
         setProperties(mapped);
-        setUsingFallback(false);
       } catch (error) {
         if (!active) return;
-        setProperties(ALL_PROPERTIES);
-        setUsingFallback(true);
+        setProperties([]);
         setPropertiesError(error?.message || "Unable to load live properties.");
       } finally {
         if (active) setLoadingProperties(false);
@@ -589,12 +572,17 @@ export default function PropertiesList({ onNavigate }) {
           <svg viewBox="0 0 32 32" fill="none" width="26" height="26"><rect x="2" y="14" width="10" height="16" stroke="#B8943F" strokeWidth="1.5" /><rect x="14" y="8" width="10" height="22" stroke="#B8943F" strokeWidth="1.5" /><rect x="26" y="18" width="4" height="12" stroke="#B8943F" strokeWidth="1.5" /><line x1="2" y1="14" x2="30" y2="14" stroke="#B8943F" strokeWidth="1" /></svg>
         </div>
         {[
-          ["M3 9l9-7 9 7v11H5z", true, "overview"],
-          ["M3 9l9-7 9 7v11H5z M9 22V12h6v10", true, "properties"],
-          ["M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8", false, "tenants"],
-          ["M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6", false, "maintenance"],
-        ].map(([d, active, id]) => (
-          <div key={id} className={`nav-item ${active ? "active" : ""}`} style={{ justifyContent: "center", padding: "12px" }}>
+          ["M3 9l9-7 9 7v11H5z", "/owner/dashboard"],
+          ["M3 9l9-7 9 7v11H5z M9 22V12h6v10", "/owner/properties"],
+          ["M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8", "/owner/leases"],
+          ["M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6", "/owner/maintenance"],
+        ].map(([d, path]) => (
+          <div
+            key={path}
+            className={`nav-item ${location.pathname.startsWith(path) ? "active" : ""}`}
+            style={{ justifyContent: "center", padding: "12px", cursor: "pointer" }}
+            onClick={() => routerNavigate(path)}
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" width="18" height="18"><path d={d} /></svg>
           </div>
         ))}
@@ -607,7 +595,7 @@ export default function PropertiesList({ onNavigate }) {
             <div className="header-title">Properties</div>
             <div className="header-subtitle">{filtered.length} of {properties.length} properties · {stats.occupancy}% occupancy</div>
             {loadingProperties && <div style={{ fontSize: 11.5, color: "var(--text-lite)", marginTop: 2 }}>Loading your live properties...</div>}
-            {usingFallback && <div style={{ fontSize: 11.5, color: "var(--amber)", marginTop: 2 }}>{propertiesError || "Using fallback properties while API is unavailable."}</div>}
+            {propertiesError && <div style={{ fontSize: 11.5, color: "var(--amber)", marginTop: 2 }}>{propertiesError}</div>}
           </div>
           <div className="header-search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>

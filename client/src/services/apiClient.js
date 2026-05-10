@@ -48,6 +48,7 @@ async function patchJson(path, payload, { withAuth = false } = {}) {
 export const registerTenant = (payload) => postJson("/api/tenant/register", payload);
 export const registerOwner = (payload) => postJson("/api/owner/register", payload);
 export const login = (payload) => postJson("/api/auth/login", payload);
+export const googleLogin = (payload) => postJson("/api/auth/google", payload);
 export const forgotPassword = (payload) => postJson("/api/auth/forgot-password", payload);
 export const resetPassword = (payload) => postJson("/api/auth/reset-password", payload);
 export const sendSignupOtp = (payload) => postJson("/api/auth/send-signup-otp", payload);
@@ -79,6 +80,8 @@ export const getTenantPropertyById = (propertyId) => getJson(`/api/tenant/proper
 export const requestPropertyVisit = (propertyId, payload) => postJson(`/api/tenant/properties/${propertyId}/visit-requests`, payload, { withAuth: true });
 export const applyForProperty = (propertyId, payload) => postJson(`/api/tenant/properties/${propertyId}/applications`, payload, { withAuth: true });
 export const getTenantApplications = () => getJson("/api/tenant/applications", { withAuth: true });
+export const reviewTenantApplicationVideo = (applicationId, payload) => postJson(`/api/tenant/applications/${applicationId}/video-review`, payload, { withAuth: true });
+export const submitMoveOutVideo = (tenancyId, payload) => postJson(`/api/tenant/tenancies/${tenancyId}/move-out-video`, payload, { withAuth: true });
 
 export const getOwnerApplications = (statusFilter) => {
     const qs = statusFilter ? `?statusFilter=${encodeURIComponent(statusFilter)}` : "";
@@ -89,6 +92,7 @@ export const reviewOwnerApplication = (applicationId, payload) => patchJson(`/ap
 export const getOwnerLeases = () => getJson("/api/owner/leases", { withAuth: true });
 export const createOwnerLease = (payload) => postJson("/api/owner/leases", payload, { withAuth: true });
 export const ownerLeaseAction = (leaseId, payload) => patchJson(`/api/owner/leases/${leaseId}`, payload, { withAuth: true });
+export const reviewOwnerMoveOut = (tenancyId, payload) => postJson(`/api/owner/tenancies/${tenancyId}/move-out-review`, payload, { withAuth: true });
 
 export const getOwnerPayments = () => getJson("/api/owner/payments", { withAuth: true });
 export const recordOwnerPayment = (paymentId, payload) => postJson(`/api/owner/payments/${paymentId}/record`, payload, { withAuth: true });

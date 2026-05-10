@@ -38,13 +38,15 @@ const normalizeText = (value, fallback = "-") => {
     return text || fallback;
 };
 
+const normalizeStatus = (value) => String(value || "").trim().toLowerCase();
+
 const normalizeArray = (value) => (Array.isArray(value) ? value : []);
 
 const statusClass = (value) => {
     const status = String(value || "").toLowerCase();
     if (["approved", "occupied", "paid", "resolved", "active", "running", "current"].includes(status)) return "badge-green";
-    if (["rejected", "overdue", "cancelled"].includes(status)) return "badge-red";
-    if (["pending", "notice", "scheduled"].includes(status)) return "badge-amber";
+    if (["rejected", "overdue", "cancelled", "withdrawn", "declined"].includes(status)) return "badge-red";
+    if (["pending", "notice", "scheduled", "under_review", "in_review"].includes(status)) return "badge-amber";
     return "badge-grey";
 };
 
@@ -418,6 +420,9 @@ export default function OwnerDashboard() {
                                                                 <span className="badge-dot" />
                                                                 {normalizeText(app?.status, "pending")}
                                                             </span>
+                                                            {normalizeStatus(app?.videoReviewStatus) && (
+                                                                <div className="td-secondary">Video: {normalizeStatus(app?.videoReviewStatus)}</div>
+                                                            )}
                                                         </td>
                                                         <td>{fmtDate(app?.created_at || app?.createdAt)}</td>
                                                     </tr>
@@ -586,7 +591,7 @@ export default function OwnerDashboard() {
                             </div>
 
                             <div className="filter-row">
-                                {["all", "pending", "approved", "rejected"].map((status) => (
+                                {["all", "pending", "approved", "rejected", "withdrawn"].map((status) => (
                                     <button key={status} className={`filter-chip ${applicationFilter === status ? "active" : ""}`} onClick={() => setApplicationFilter(status)}>
                                         {status === "all" ? "All" : status}
                                     </button>
@@ -640,6 +645,9 @@ export default function OwnerDashboard() {
                                                                 <span className="badge-dot" />
                                                                 {normalizeText(app?.status, "pending")}
                                                             </span>
+                                                            {normalizeStatus(app?.videoReviewStatus) && (
+                                                                <div className="td-secondary">Video: {normalizeStatus(app?.videoReviewStatus)}</div>
+                                                            )}
                                                         </td>
                                                         <td>
                                                             {pending ? (

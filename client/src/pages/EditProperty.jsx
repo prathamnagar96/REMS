@@ -5,36 +5,45 @@ import { getOwnerPropertyById, updateOwnerProperty } from "../services/apiClient
 import "./Dashboard.css";
 import "./Properties.css";
 
-// ─── MOCK: fetch property by id ───────────────────────────────────────────────
-const PROPERTY_DB = {
-  1: {
-    id: 1, status: "occupied", publishState: "published",
-    title: "Sunrise Heights 2BHK", propertyType: "apartment", bhk: "2 BHK", totalUnits: "1",
-    address: "Flat 402, Plot 14, Andheri Lokhandwala Road", city: "Mumbai", state: "Maharashtra", pincode: "400053", landmark: "Near Versova Metro Station",
-    sizeCarpet: "850", sizeBuiltup: "1020", floorNumber: "4", totalFloors: "12", facing: "East", propertyAge: "8",
-    furnishing: "semi", parking: "two_wheeler", petPolicy: "negotiable",
-    amenities: ["Lift", "Security Guard", "CCTV", "Generator Backup", "Intercom"],
-    rent: "28000", deposit: "84000", maintenanceCharges: "1200", maintenanceFreq: "monthly", negotiable: "no",
-    minLease: "11", maxLease: "12", noticePeriod: "2", preferredTenants: "any",
-    rentIncludes: ["Maintenance Charges"],
-    houseRules: "No smoking inside the property\nNo loud music after 10 PM\nGuests must be registered with society security",
-    availableFrom: "", description: "Well-maintained 2BHK apartment in the heart of Andheri West. Walking distance to Versova Metro station, D-Mart, and multiple bus stops. The flat receives excellent morning sunlight with its east-facing orientation. Building has 24/7 security and power backup.",
-    videoTour: "", photos: null, documents: null,
-  },
-  2: {
-    id: 2, status: "vacant", publishState: "published",
-    title: "Green Valley Studio", propertyType: "studio", bhk: "Studio", totalUnits: "1",
-    address: "12B, Hiranandani Business Park", city: "Mumbai", state: "Maharashtra", pincode: "400076", landmark: "Opposite Hiranandani Hospital",
-    sizeCarpet: "420", sizeBuiltup: "510", floorNumber: "2", totalFloors: "8", facing: "North", propertyAge: "5",
-    furnishing: "fully", parking: "none", petPolicy: "no_pets",
-    amenities: ["Lift", "WiFi Ready", "CCTV", "24/7 Water"],
-    rent: "18000", deposit: "36000", maintenanceCharges: "800", maintenanceFreq: "monthly", negotiable: "slightly",
-    minLease: "6", maxLease: "11", noticePeriod: "1", preferredTenants: "working",
-    rentIncludes: ["WiFi Ready", "Maintenance Charges"],
-    houseRules: "No parties or gatherings\nNo smoking on premises",
-    availableFrom: "2025-04-10", description: "Compact, fully furnished studio ideal for working professionals. Located in the premium Hiranandani township with excellent connectivity to Powai and BKC.",
-    videoTour: "", photos: null, documents: null,
-  },
+const EMPTY_FORM = {
+  id: "",
+  status: "vacant",
+  publishState: "draft",
+  title: "",
+  propertyType: "apartment",
+  bhk: "",
+  totalUnits: "",
+  address: "",
+  city: "",
+  state: "",
+  pincode: "",
+  landmark: "",
+  sizeCarpet: "",
+  sizeBuiltup: "",
+  floorNumber: "",
+  totalFloors: "",
+  facing: "",
+  propertyAge: "",
+  furnishing: "semi",
+  parking: "none",
+  petPolicy: "",
+  amenities: [],
+  rent: "",
+  deposit: "",
+  maintenanceCharges: "",
+  maintenanceFreq: "monthly",
+  negotiable: "no",
+  minLease: "",
+  maxLease: "",
+  noticePeriod: "",
+  preferredTenants: "",
+  rentIncludes: [],
+  houseRules: "",
+  availableFrom: "",
+  description: "",
+  videoTour: "",
+  photos: null,
+  documents: null,
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -83,11 +92,11 @@ const mapApiPropertyToEditForm = (property, fallback) => {
     ...base,
     id: source.id ?? base.id,
     status: source.status ?? base.status ?? "vacant",
-    publishState: source.publishState ?? base.publishState ?? "published",
+    publishState: source.publishState ?? base.publishState ?? "draft",
     title: toText(source.title, base.title || ""),
-    propertyType: normalizePropertyType(source.propertyType ?? base.propertyType, base.propertyType || "apartment"),
-    bhk: toText(source.bhk, base.bhk || "2 BHK"),
-    totalUnits: toText(source.totalUnits, base.totalUnits || "1"),
+    propertyType: normalizePropertyType(source.propertyType ?? base.propertyType, base.propertyType || ""),
+    bhk: toText(source.bhk, base.bhk || ""),
+    totalUnits: toText(source.totalUnits, base.totalUnits || ""),
     address: toText(source.address, base.address || ""),
     city: toText(source.city, base.city || ""),
     state: toText(source.state, base.state || ""),
@@ -99,19 +108,19 @@ const mapApiPropertyToEditForm = (property, fallback) => {
     totalFloors: toText(source.totalFloors, base.totalFloors || ""),
     facing: toText(source.facing, base.facing || ""),
     propertyAge: toText(source.propertyAge, base.propertyAge || ""),
-    furnishing: normalizeFurnishing(source.furnishing ?? base.furnishing, base.furnishing || "semi"),
-    parking: normalizeParking(source.parking ?? base.parking, base.parking || "none"),
+    furnishing: normalizeFurnishing(source.furnishing ?? base.furnishing, base.furnishing || ""),
+    parking: normalizeParking(source.parking ?? base.parking, base.parking || ""),
     petPolicy: toText(source.petPolicy, base.petPolicy || ""),
     amenities: Array.isArray(source.amenities) ? source.amenities : (Array.isArray(base.amenities) ? base.amenities : []),
     rent: toText(source.rent, base.rent || ""),
     deposit: toText(source.deposit, base.deposit || ""),
     maintenanceCharges: toText(source.maintenanceCharges, base.maintenanceCharges || ""),
-    maintenanceFreq: toText(source.maintenanceFreq, base.maintenanceFreq || "monthly"),
-    negotiable: toText(source.negotiable, base.negotiable || "no"),
-    minLease: toText(source.minLease, base.minLease || "11"),
-    maxLease: toText(source.maxLease, base.maxLease || "12"),
-    noticePeriod: toText(source.noticePeriod, base.noticePeriod || "2"),
-    preferredTenants: toText(source.preferredTenants, base.preferredTenants || "any"),
+    maintenanceFreq: toText(source.maintenanceFreq, base.maintenanceFreq || ""),
+    negotiable: toText(source.negotiable, base.negotiable || ""),
+    minLease: toText(source.minLease, base.minLease || ""),
+    maxLease: toText(source.maxLease, base.maxLease || ""),
+    noticePeriod: toText(source.noticePeriod, base.noticePeriod || ""),
+    preferredTenants: toText(source.preferredTenants, base.preferredTenants || ""),
     rentIncludes: Array.isArray(source.rentIncludes) ? source.rentIncludes : (Array.isArray(base.rentIncludes) ? base.rentIncludes : []),
     houseRules: toText(source.houseRules, base.houseRules || ""),
     availableFrom: toText(source.availableFrom, base.availableFrom || ""),
@@ -270,16 +279,15 @@ function BuildingPreview({ formData }) {
 // ─── Field Components (same system) ──────────────────────────────────────────
 const Lbl = ({ children, required }) => <label className="f-lbl">{children}{required && <span style={{ color: "var(--red)", marginLeft: 3 }}>*</span>}</label>;
 
-const Inp = ({ label, name, type = "text", value, onChange, placeholder, required, hint, error }) => (
+const Inp = ({ label, name, type = "text", value, onChange, required, error }) => (
   <div className="f-grp">
     <Lbl required={required}>{label}</Lbl>
-    <input className={`f-ctrl${error ? " f-ctrl-error" : ""}`} type={type} name={name} value={value} onChange={onChange} placeholder={placeholder} required={required} autoComplete="off" />
+    <input className={`f-ctrl${error ? " f-ctrl-error" : ""}`} type={type} name={name} value={value} onChange={onChange} required={required} autoComplete="off" />
     {error && <div className="f-error">{error}</div>}
-    {hint && !error && <div style={{ fontSize: 11, color: "var(--text-lite)", marginTop: 3 }}>{hint}</div>}
   </div>
 );
 
-const Sel = ({ label, name, value, onChange, options, required, hint, error }) => (
+const Sel = ({ label, name, value, onChange, options, required, error }) => (
   <div className="f-grp">
     <Lbl required={required}>{label}</Lbl>
     <select className={`f-ctrl${error ? " f-ctrl-error" : ""}`} name={name} value={value} onChange={onChange}>
@@ -287,14 +295,13 @@ const Sel = ({ label, name, value, onChange, options, required, hint, error }) =
       {options.map(o => <option key={o.value || o} value={o.value || o}>{o.label || o}</option>)}
     </select>
     {error && <div className="f-error">{error}</div>}
-    {hint && !error && <div style={{ fontSize: 11, color: "var(--text-lite)", marginTop: 3 }}>{hint}</div>}
   </div>
 );
 
-const Txt = ({ label, name, value, onChange, placeholder, rows = 3, required }) => (
+const Txt = ({ label, name, value, onChange, rows = 3, required }) => (
   <div className="f-grp">
     <Lbl required={required}>{label}</Lbl>
-    <textarea className="f-ctrl" name={name} value={value} onChange={onChange} placeholder={placeholder} rows={rows} style={{ resize: "vertical" }} />
+    <textarea className="f-ctrl" name={name} value={value} onChange={onChange} rows={rows} style={{ resize: "vertical" }} />
   </div>
 );
 
@@ -342,7 +349,7 @@ const STATES_IN = ["Maharashtra", "Delhi", "Karnataka", "Tamil Nadu", "Telangana
 export default function EditProperty({ propertyId = 1, onNavigate }) {
   const routerNavigate = useNavigate();
   const { propertyId: propertyIdParam } = useParams();
-  const resolvedPropertyId = Number(propertyIdParam || propertyId || 1);
+  const resolvedPropertyId = propertyIdParam || propertyId || "";
   const nav = onNavigate || ((action, id) => {
     if (action === "list") {
       routerNavigate("/owner/properties");
@@ -356,10 +363,7 @@ export default function EditProperty({ propertyId = 1, onNavigate }) {
       routerNavigate(`/owner/properties/${id || resolvedPropertyId}/edit`);
     }
   });
-  const fallbackOriginal = useMemo(
-    () => ({ ...(PROPERTY_DB[resolvedPropertyId] || PROPERTY_DB[1]) }),
-    [resolvedPropertyId],
-  );
+  const fallbackOriginal = useMemo(() => ({ ...EMPTY_FORM }), []);
 
   const [original, setOriginal] = useState({ ...fallbackOriginal });
   const [data, setData] = useState({ ...fallbackOriginal });
@@ -384,6 +388,9 @@ export default function EditProperty({ propertyId = 1, onNavigate }) {
       setSaved(false);
       setSavedChangesCount(0);
       try {
+        if (!resolvedPropertyId) {
+          throw new Error("Missing property id.");
+        }
         const response = await getOwnerPropertyById(resolvedPropertyId);
         const mapped = mapApiPropertyToEditForm(response?.property, fallbackOriginal);
         if (!active) return;
@@ -591,7 +598,7 @@ export default function EditProperty({ propertyId = 1, onNavigate }) {
 
         {loadError && (
           <div style={{ margin: "12px 18px 0", padding: "10px 12px", border: "1px solid rgba(196,123,26,0.25)", background: "rgba(196,123,26,0.08)", color: "var(--amber)", borderRadius: 6, fontSize: 12.5 }}>
-            {loadError} Showing local fallback data.
+            {loadError}
           </div>
         )}
         {saveError && (

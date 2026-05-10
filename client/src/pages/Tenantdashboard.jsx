@@ -4,7 +4,10 @@ import {
     applyForProperty,
     browseProperties,
     getTenantDashboard,
+    getTenantApplications,
     requestPropertyVisit,
+    reviewTenantApplicationVideo,
+    submitMoveOutVideo,
 } from "../services/apiClient";
 import { useAuth } from "../context/AuthContext";
 import "./Dashboard.css";
@@ -44,6 +47,8 @@ const normalizeText = (value, fallback = "-") => {
     return text || fallback;
 };
 
+const normalizeStatus = (value) => String(value || "").trim().toLowerCase();
+
 const normalizeArray = (value) => (Array.isArray(value) ? value : []);
 
 const NAV_ITEMS = [
@@ -70,6 +75,18 @@ export default function TenantDashboard() {
 
     const [actionBusy, setActionBusy] = useState({});
     const [actionMessage, setActionMessage] = useState("");
+
+    const [applications, setApplications] = useState([]);
+    const [applicationsLoading, setApplicationsLoading] = useState(true);
+    const [applicationsError, setApplicationsError] = useState("");
+
+    const [moveOutForm, setMoveOutForm] = useState({
+        videoUrl: "",
+        geoLat: "",
+        geoLng: "",
+        geoAccuracy: "",
+        note: "",
+    });
 
     const activeProperty = dashboard?.activeProperty || null;
     const activeTenancy = dashboard?.activeTenancy || null;
@@ -128,27 +145,55 @@ export default function TenantDashboard() {
         }
     }, []);
 
+    const loadApplications = useCallback(async () => {
+        setApplicationsLoading(true);
+        setApplicationsError("");
+        try {
+            const response = await getTenantApplications();
+            setApplications(normalizeArray(response?.items));
+        } catch (err) {
+            setApplicationsError(err?.message || "Unable to load applications.");
+            setApplications([]);
+        } finally {
+            setApplicationsLoading(false);
+        }
+    }, []);
+
     useEffect(() => {
         loadDashboard();
         loadBrowse();
-    }, [loadDashboard, loadBrowse]);
+        loadApplications();
+    }, [loadDashboard, loadBrowse, loadApplications]);
 
     const handleLogout = () => {
         logout();
         navigate("/auth", { replace: true });
     };
 
+    const buildTenantContact = () => {
+        const tenantSource = profile || dashboard?.tenant || {};
+        const fullName = normalizeName(tenantSource);
+        const email = tenantSource?.email || profile?.email || dashboard?.tenant?.email || null;
+        const phone = tenantSource?.phone || tenantSource?.phone_number || profile?.phone || profile?.phone_number || dashboard?.tenant?.phone || dashboard?.tenant?.phone_number || null;
+        return { fullName, email, phone };
+    };
+
     const handleVisitRequest = async (propertyId) => {
         setActionMessage("");
         setActionBusy((prev) => ({ ...prev, [`visit-${propertyId}`]: true }));
         try {
+            const { fullName, email, phone } = buildTenantContact();
             await requestPropertyVisit(propertyId, {
                 preferredDate: null,
                 preferredTimeSlot: null,
                 note: "Requested from tenant dashboard",
+                fullName,
+                email,
+                phone,
             });
             setActionMessage("Visit request submitted.");
             await loadDashboard();
+            await loadApplications();
         } catch (err) {
             setActionMessage(err?.message || "Failed to submit visit request.");
         } finally {
@@ -160,14 +205,19 @@ export default function TenantDashboard() {
         setActionMessage("");
         setActionBusy((prev) => ({ ...prev, [`apply-${propertyId}`]: true }));
         try {
+            const { fullName, email, phone } = buildTenantContact();
             await applyForProperty(propertyId, {
                 moveInDate: null,
                 leaseMonths: 11,
                 offeredRent: null,
                 note: "Submitted from tenant dashboard",
+                fullName,
+                email,
+                phone,
             });
             setActionMessage("Application submitted successfully.");
             await loadDashboard();
+            await loadApplications();
         } catch (err) {
             setActionMessage(err?.message || "Failed to submit application.");
         } finally {
@@ -175,8 +225,87 @@ export default function TenantDashboard() {
         }
     };
 
+    const videoReviewQueue = useMemo(() => {
+        return applications.filter((app) => {
+            const status = normalizeStatus(app?.status);
+            const reviewStatus = normalizeStatus(app?.videoReviewStatus);
+            return status === "approved" && (!reviewStatus || reviewStatus === "pending");
+        });
+    }, [applications]);
+
+    const handleVideoDecision = async (applicationId, decision) => {
+        if (!applicationId) return;
+        const busyKey = `video-${decision}-${applicationId}`;
+        setActionMessage("");
+        setActionBusy((prev) => ({ ...prev, [busyKey]: true }));
+        try {
+            await reviewTenantApplicationVideo(applicationId, { decision });
+            setActionMessage(decision === "accept" ? "Handover accepted. Lease activated." : "Handover declined.");
+            await loadDashboard();
+            await loadApplications();
+        } catch (err) {
+            setActionMessage(err?.message || "Unable to review handover video.");
+        } finally {
+            setActionBusy((prev) => ({ ...prev, [busyKey]: false }));
+        }
+    };
+
+    const handleMoveOutChange = (event) => {
+        const { name, value } = event.target;
+        setMoveOutForm((prev) => ({ ...prev, [name]: value }));
+    };
+
+    const handleCaptureLocation = () => {
+        if (!navigator.geolocation) {
+            setActionMessage("Geolocation is not supported in this browser.");
+            return;
+        }
+        setActionBusy((prev) => ({ ...prev, geo: true }));
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const { latitude, longitude, accuracy } = position.coords;
+                setMoveOutForm((prev) => ({
+                    ...prev,
+                    geoLat: String(latitude.toFixed(6)),
+                    geoLng: String(longitude.toFixed(6)),
+                    geoAccuracy: accuracy ? String(Math.round(accuracy)) : prev.geoAccuracy,
+                }));
+                setActionBusy((prev) => ({ ...prev, geo: false }));
+            },
+            (error) => {
+                setActionMessage(error?.message || "Unable to fetch location.");
+                setActionBusy((prev) => ({ ...prev, geo: false }));
+            },
+        );
+    };
+
+    const handleMoveOutSubmit = async () => {
+        if (!activeTenancy?.id) return;
+        setActionMessage("");
+        setActionBusy((prev) => ({ ...prev, "move-out": true }));
+        try {
+            const payload = {
+                videoUrl: moveOutForm.videoUrl,
+                capturedAt: null,
+                geoLat: moveOutForm.geoLat ? Number(moveOutForm.geoLat) : null,
+                geoLng: moveOutForm.geoLng ? Number(moveOutForm.geoLng) : null,
+                geoAccuracy: moveOutForm.geoAccuracy ? Number(moveOutForm.geoAccuracy) : null,
+                note: moveOutForm.note || null,
+            };
+            await submitMoveOutVideo(activeTenancy.id, payload);
+            setActionMessage("Move-out video submitted. Awaiting owner review.");
+            await loadDashboard();
+        } catch (err) {
+            setActionMessage(err?.message || "Unable to submit move-out video.");
+        } finally {
+            setActionBusy((prev) => ({ ...prev, "move-out": false }));
+        }
+    };
+
     const tenantName = normalizeName(profile || dashboard?.tenant || {});
     const firstName = tenantName.split(" ")[0] || "Tenant";
+    const moveOutStatus = normalizeStatus(activeTenancy?.move_out_status || activeTenancy?.moveOutStatus);
+    const moveOutSubmitted = ["submitted", "accepted"].includes(moveOutStatus);
 
     const headerTitle = {
         overview: "Overview",
@@ -241,7 +370,7 @@ export default function TenantDashboard() {
                         <div className="header-subtitle">{headerSubtitle}</div>
                     </div>
                     <div className="header-actions">
-                        <button className="btn-secondary" onClick={() => { loadDashboard(); loadBrowse(); }}>
+                        <button className="btn-secondary" onClick={() => { loadDashboard(); loadBrowse(); loadApplications(); }}>
                             Refresh
                         </button>
                     </div>
@@ -331,6 +460,56 @@ export default function TenantDashboard() {
                                 </div>
                             </div>
 
+                            <div className="card" style={{ marginBottom: 18 }}>
+                                <div className="card-header"><div className="card-title">Handover Video Review</div></div>
+                                <div className="card-body">
+                                    {applicationsLoading && (
+                                        <div style={{ color: "var(--text-lite)" }}>Loading applications...</div>
+                                    )}
+                                    {applicationsError && (
+                                        <div style={{ color: "var(--amber)" }}>{applicationsError}</div>
+                                    )}
+                                    {!applicationsLoading && !applicationsError && videoReviewQueue.length === 0 && (
+                                        <div style={{ color: "var(--text-lite)" }}>No handover videos awaiting your review.</div>
+                                    )}
+                                    {videoReviewQueue.map((app) => {
+                                        const video = app?.handoverVideo;
+                                        const hasVideo = Boolean(video?.url);
+                                        const acceptKey = `video-accept-${app?.id}`;
+                                        const declineKey = `video-decline-${app?.id}`;
+                                        const busy = Boolean(actionBusy[acceptKey] || actionBusy[declineKey]);
+                                        const geoLabel = video?.geoLat && video?.geoLng
+                                            ? `${Number(video.geoLat).toFixed(4)}, ${Number(video.geoLng).toFixed(4)}`
+                                            : null;
+
+                                        return (
+                                            <div key={app?.id} style={{ padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
+                                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                                                    <div>
+                                                        <div style={{ fontWeight: 600, color: "var(--navy)" }}>{normalizeText(app?.property?.title, "Property")}</div>
+                                                        <div style={{ fontSize: 12, color: "var(--text-lite)", marginTop: 4 }}>{normalizeText(app?.property?.city, "-")}</div>
+                                                        {geoLabel && <div style={{ fontSize: 11.5, color: "var(--text-mid)", marginTop: 4 }}>Geo-tag: {geoLabel}</div>}
+                                                    </div>
+                                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                                        {hasVideo ? (
+                                                            <a className="btn-secondary" style={{ fontSize: 12 }} href={video.url} target="_blank" rel="noreferrer">View Video</a>
+                                                        ) : (
+                                                            <span style={{ fontSize: 12, color: "var(--text-lite)" }}>Awaiting move-out video</span>
+                                                        )}
+                                                        <button className="btn-primary" style={{ fontSize: 12 }} disabled={!hasVideo || busy} onClick={() => handleVideoDecision(app?.id, "accept")}>
+                                                            {actionBusy[acceptKey] ? "Accepting..." : "Accept"}
+                                                        </button>
+                                                        <button className="btn-secondary" style={{ fontSize: 12 }} disabled={busy} onClick={() => handleVideoDecision(app?.id, "decline")}>
+                                                            {actionBusy[declineKey] ? "Declining..." : "Decline"}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
                             <div className="card">
                                 <div className="card-header"><div className="card-title">Workflow Snapshot</div></div>
                                 <div className="card-body">
@@ -346,23 +525,73 @@ export default function TenantDashboard() {
                     )}
 
                     {tab === "my-property" && (
-                        <div className="card">
-                            <div className="card-header"><div className="card-title">My Property</div></div>
-                            <div className="card-body">
-                                {activeProperty ? (
-                                    <div className="info-grid">
-                                        <div className="info-item"><span className="info-key">Title</span><span className="info-val-strong">{normalizeText(activeProperty.title)}</span></div>
-                                        <div className="info-item"><span className="info-key">Type</span><span className="info-val-strong">{normalizeText(activeProperty.propertyType)}</span></div>
-                                        <div className="info-item"><span className="info-key">BHK</span><span className="info-val-strong">{normalizeText(activeProperty.bhk)}</span></div>
-                                        <div className="info-item"><span className="info-key">Address</span><span className="info-val-strong">{normalizeText(activeProperty.address)}</span></div>
-                                        <div className="info-item"><span className="info-key">City</span><span className="info-val-strong">{normalizeText(activeProperty.city)}</span></div>
-                                        <div className="info-item"><span className="info-key">Rent</span><span className="info-val-strong">₹{fmt(activeProperty.rent)}</span></div>
-                                    </div>
-                                ) : (
-                                    <div style={{ color: "var(--text-mid)" }}>No property linked yet.</div>
-                                )}
+                        <>
+                            <div className="card">
+                                <div className="card-header"><div className="card-title">My Property</div></div>
+                                <div className="card-body">
+                                    {activeProperty ? (
+                                        <div className="info-grid">
+                                            <div className="info-item"><span className="info-key">Title</span><span className="info-val-strong">{normalizeText(activeProperty.title)}</span></div>
+                                            <div className="info-item"><span className="info-key">Type</span><span className="info-val-strong">{normalizeText(activeProperty.propertyType)}</span></div>
+                                            <div className="info-item"><span className="info-key">BHK</span><span className="info-val-strong">{normalizeText(activeProperty.bhk)}</span></div>
+                                            <div className="info-item"><span className="info-key">Address</span><span className="info-val-strong">{normalizeText(activeProperty.address)}</span></div>
+                                            <div className="info-item"><span className="info-key">City</span><span className="info-val-strong">{normalizeText(activeProperty.city)}</span></div>
+                                            <div className="info-item"><span className="info-key">Rent</span><span className="info-val-strong">₹{fmt(activeProperty.rent)}</span></div>
+                                        </div>
+                                    ) : (
+                                        <div style={{ color: "var(--text-mid)" }}>No property linked yet.</div>
+                                    )}
+                                </div>
                             </div>
-                        </div>
+
+                            <div className="card" style={{ marginTop: 16 }}>
+                                <div className="card-header"><div className="card-title">Move-out Handover</div></div>
+                                <div className="card-body">
+                                    {!activeTenancy && (
+                                        <div style={{ color: "var(--text-lite)" }}>You can submit a move-out video once you have an active tenancy.</div>
+                                    )}
+                                    {activeTenancy && (
+                                        <>
+                                            {moveOutSubmitted && (
+                                                <div style={{ marginBottom: 12, color: "var(--green)" }}>
+                                                    Move-out video submitted. Status: {normalizeText(moveOutStatus, "submitted")}.
+                                                </div>
+                                            )}
+                                            <div className="info-grid">
+                                                <div className="info-item" style={{ gridColumn: "span 2" }}>
+                                                    <span className="info-key">Video URL</span>
+                                                    <input className="f-ctrl" name="videoUrl" value={moveOutForm.videoUrl} onChange={handleMoveOutChange} placeholder="https://drive.google.com/..." />
+                                                </div>
+                                                <div className="info-item">
+                                                    <span className="info-key">Geo Latitude</span>
+                                                    <input className="f-ctrl" name="geoLat" value={moveOutForm.geoLat} onChange={handleMoveOutChange} placeholder="28.6139" />
+                                                </div>
+                                                <div className="info-item">
+                                                    <span className="info-key">Geo Longitude</span>
+                                                    <input className="f-ctrl" name="geoLng" value={moveOutForm.geoLng} onChange={handleMoveOutChange} placeholder="77.2090" />
+                                                </div>
+                                                <div className="info-item">
+                                                    <span className="info-key">Accuracy (m)</span>
+                                                    <input className="f-ctrl" name="geoAccuracy" value={moveOutForm.geoAccuracy} onChange={handleMoveOutChange} placeholder="20" />
+                                                </div>
+                                                <div className="info-item" style={{ gridColumn: "span 2" }}>
+                                                    <span className="info-key">Note</span>
+                                                    <input className="f-ctrl" name="note" value={moveOutForm.note} onChange={handleMoveOutChange} placeholder="Any remarks about the handover" />
+                                                </div>
+                                            </div>
+                                            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                                                <button className="btn-secondary" disabled={Boolean(actionBusy.geo)} onClick={handleCaptureLocation}>
+                                                    {actionBusy.geo ? "Locating..." : "Use Current Location"}
+                                                </button>
+                                                <button className="btn-primary" disabled={!moveOutForm.videoUrl || Boolean(actionBusy["move-out"])} onClick={handleMoveOutSubmit}>
+                                                    {actionBusy["move-out"] ? "Submitting..." : "Submit Move-out Video"}
+                                                </button>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        </>
                     )}
 
                     {tab === "browse" && (

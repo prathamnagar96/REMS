@@ -24,6 +24,19 @@
     transform: translateY(-2px);
 }
 
+.tp-map-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.tp-map {
+    height: 520px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+
 /* File upload zone (for apply form) */
 .file-upload-zone {
     display: flex;

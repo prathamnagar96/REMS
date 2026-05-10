@@ -39,10 +39,12 @@ REMS centralizes the full lifecycle in one platform:
 2. Log in as owner role
 3. Create and update properties
 4. Review tenant applications
-5. Create and manage leases
-6. Track and record rent payments
-7. Manage maintenance tickets
-8. Review and update document sharing/verification
+5. Share handover video after tenant move-out review
+6. Create and manage leases
+7. Track and record rent payments
+8. Manage maintenance tickets
+9. Review and update document sharing/verification
+10. Approve move-out handover and reopen property
 
 ### Tenant Workflow
 1. Register and verify email OTP
@@ -51,7 +53,10 @@ REMS centralizes the full lifecycle in one platform:
 4. View property details
 5. Request visits
 6. Submit stay applications
-7. Track dashboard activity and application states
+7. Review handover (geo-tagged) move-in video after approval
+8. Accept/decline and activate lease
+9. Track dashboard activity and application states
+10. Upload geo-tagged move-out handover video at exit
 
 ---
 
@@ -80,6 +85,8 @@ flowchart LR
 - React `^19.2.4`
 - React DOM `^19.2.4`
 - React Router DOM `^7.14.0`
+- Leaflet `^1.9.4`
+- React-Leaflet `^5.0.0`
 - Three.js `^0.183.2`
 - Vite `^8.0.1`
 - ESLint ecosystem (`@eslint/js`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`)
@@ -103,8 +110,11 @@ flowchart LR
 ```text
 rental-management/
   README.md
-  docker-compose.yml            # currently empty
+  docker-compose.yml            # local/prod docker wiring
   client/
+    .env.example
+    Dockerfile
+    nginx.conf
     package.json
     src/
       App.jsx
@@ -130,6 +140,8 @@ rental-management/
         TenantApply.jsx
   server/
     .env
+    .env.example
+    Dockerfile
     requirements.txt
     app/
       main.py
@@ -145,7 +157,9 @@ rental-management/
         database.py
     tests/                      # currently empty
     services/                   # currently empty
-  infra/                        # currently empty
+  infra/
+    sql/
+      2026-05-09-add-property-geo.sql
 ```
 
 ---
@@ -211,9 +225,11 @@ The frontend route tree in `client/src/App.jsx` enforces:
 | POST | `/api/tenant/properties/{property_id}/visit-requests` | Submit visit request | Tenant |
 | POST | `/api/tenant/properties/{property_id}/applications` | Submit stay application | Tenant |
 | GET | `/api/tenant/applications` | Tenant application history | Tenant |
+| POST | `/api/tenant/applications/{application_id}/video-review` | Accept/decline handover video | Tenant |
 | GET | `/api/owner/applications` | Owner applications list | Owner |
 | PATCH | `/api/owner/applications/{application_id}` | Approve/reject application | Owner |
 | GET | `/api/tenant/dashboard` | Tenant dashboard data | Tenant |
+| POST | `/api/tenant/tenancies/{tenancy_id}/move-out-video` | Submit geo-tagged move-out video | Tenant |
 | GET | `/api/owner/maintenance` | List maintenance tickets + summary | Owner |
 | POST | `/api/owner/maintenance` | Create maintenance ticket | Owner |
 | PATCH | `/api/owner/maintenance/{ticket_id}` | Update maintenance ticket | Owner |
@@ -222,6 +238,7 @@ The frontend route tree in `client/src/App.jsx` enforces:
 | GET | `/api/owner/leases` | List leases + summary metrics | Owner |
 | POST | `/api/owner/leases` | Create lease | Owner |
 | PATCH | `/api/owner/leases/{lease_id}` | Lease actions (renewal/notice/terminate) | Owner |
+| POST | `/api/owner/tenancies/{tenancy_id}/move-out-review` | Review move-out handover | Owner |
 | GET | `/api/owner/payments` | Payment list + payouts + summary | Owner |
 | POST | `/api/owner/payments/{payment_id}/record` | Mark payment as paid and record details | Owner |
 
@@ -231,6 +248,7 @@ The frontend route tree in `client/src/App.jsx` enforces:
 - Owner maintenance filters: `statusFilter`, `propertyId`
 - Owner documents filters: `categoryFilter`, `propertyId`
 - Lease actions payload: `send_renewal`, `send_notice`, `terminate`
+- Handover flow: owner approval sets `video_review_status=pending`; tenant acceptance activates tenancy
 
 ---
 
@@ -272,6 +290,39 @@ This is useful when environments have slight table drift or stale schema assumpt
 
 ### Missing Workflow Tables
 Optional workflow reads/inserts detect missing relation errors and return meaningful API errors instead of raw DB traces.
+
+### Handover Video Schema Additions
+Add the following columns to enable the geo-tagged handover workflow (recommended for production):
+
+**properties**
+- `latitude` (double precision)
+- `longitude` (double precision)
+
+**property_media**
+- `media_type` (text, e.g. `handover_video`)
+- `media_url` (text)
+- `geo_lat` (float)
+- `geo_lng` (float)
+- `geo_accuracy` (float)
+- `captured_at` (timestamp)
+- `tenant_id` (uuid)
+- `tenancy_id` (uuid)
+- `note` (text)
+
+**stay_applications**
+- `video_review_status` (text: `pending`, `accepted`, `declined`)
+- `video_reviewed_at` (timestamp)
+- `video_review_note` (text)
+- `lease_start`, `lease_end` (date)
+- `monthly_rent`, `security_deposit` (numeric)
+- `owner_approved_at` (timestamp)
+
+**tenancies**
+- `move_out_status` (text: `submitted`, `accepted`, `rejected`)
+- `move_out_video_id` (uuid)
+- `move_out_video_url` (text)
+- `move_out_requested_at` (timestamp)
+- `move_out_confirmed_at` (timestamp)
 
 ---
 
@@ -325,6 +376,14 @@ Set these in `server/.env`.
 | `RESEND_API_KEY` | none | Resend API key |
 | `MAIL_FROM` | `onboarding@resend.dev` | Sender email used by mailer |
 
+### Geocoding
+| Variable | Default | Purpose |
+|---|---|---|
+| `GEOCODE_PROVIDER` | `nominatim` | `nominatim` (free) or `google` |
+| `GEOCODE_API_KEY` | none | API key for geocoding provider |
+| `GEOCODE_USER_AGENT` | `rems-app/1.0 (contact: admin@example.com)` | User-Agent for Nominatim requests |
+| `GEOCODE_ENABLED` | `true` | Enable or disable auto geocoding |
+
 ### Example `server/.env`
 ```ini
 SUPABASE_URL=https://your-project.supabase.co
@@ -349,14 +408,23 @@ SUPABASE_PAYMENTS_TABLE=rent_payments
 SUPABASE_MAINTENANCE_TABLE=maintenance_requests
 SUPABASE_DOCUMENTS_TABLE=property_documents
 
+APP_BASE_URL=http://localhost:5173
+RESET_PASSWORD_PATH=/reset-password
+GOOGLE_CLIENT_ID=your-google-client-id
+
 SIGNUP_OTP_EXPIRE_MINUTES=10
 PASSWORD_RESET_OTP_EXPIRE_MINUTES=10
 EXPOSE_RESET_TOKEN=false
 RESEND_API_KEY=your-resend-key
 MAIL_FROM=onboarding@resend.dev
+
+GEOCODE_PROVIDER=nominatim
+GEOCODE_API_KEY=
+GEOCODE_USER_AGENT=rems-app/1.0 (contact: admin@example.com)
+GEOCODE_ENABLED=true
 ```
 
-Frontend env (`client/.env.local`):
+Frontend env (`client/.env`):
 ```ini
 VITE_API_BASE_URL=http://localhost:8000
 ```
@@ -396,7 +464,36 @@ npm run build
 
 ---
 
-## 12) Two-Laptop Demo Runbook (Presentation Friendly)
+## 12) Deployment Notes (Recommended Stack)
+
+### Recommended (simple)
+- Frontend: Vercel (deploy `client/`)
+- Backend: Render or Railway (deploy `server/`)
+- Database: Supabase
+
+### Backend deploy (Render/Railway)
+1. Build: `pip install -r requirements.txt`
+2. Start: `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+3. Set env vars from `server/.env.example`
+4. Set `CORS_ALLOW_ORIGINS` to your frontend URL
+
+### Frontend deploy (Vercel)
+1. Build command: `cd client && npm install && npm run build`
+2. Output directory: `client/dist`
+3. Set `VITE_API_BASE_URL` to the backend URL
+
+### Docker (single host)
+```bash
+docker compose up --build
+```
+
+### Geo setup
+- Run SQL in `infra/sql/2026-05-09-add-property-geo.sql`
+- For Google geocoding: set `GEOCODE_PROVIDER=google` and `GEOCODE_API_KEY`
+
+---
+
+## 13) Two-Laptop Demo Runbook (Presentation Friendly)
 
 ### Goal
 Run backend on Laptop A, access the app from both laptops for owner and tenant demo.
@@ -413,21 +510,24 @@ Run backend on Laptop A, access the app from both laptops for owner and tenant d
 2. Owner login and property workflow
 3. Tenant signup/login and property search
 4. Tenant visit request and application
-5. Owner application review, lease creation, and payment/maintenance/document modules
+5. Owner approves application and tenant reviews handover video
+6. Tenant accepts and lease activates
+7. Owner review, payments, maintenance, and documents
+8. Tenant uploads move-out handover video
 
 ---
 
-## 13) Current Implementation Gaps
+## 14) Current Implementation Gaps
 
 - OTP store is in-memory (not distributed, resets on server restart)
 - No automated test suite yet (`server/tests` is empty)
-- `docker-compose.yml` and `infra/` scaffolding are present but not implemented
+- Docker config is basic and meant for a single-node deployment
 - `server/services/` is currently empty
 - Resend sandbox/test-mode limitations can block external recipient delivery
 
 ---
 
-## 14) Production Hardening Checklist
+## 15) Production Hardening Checklist
 
 1. Move OTP storage to Redis or database-backed store
 2. Add rate limiting for OTP and login attempts
@@ -442,7 +542,7 @@ Run backend on Laptop A, access the app from both laptops for owner and tenant d
 
 ---
 
-## 15) Suggested PPT Deck Outline
+## 16) Suggested PPT Deck Outline
 
 1. Problem and Opportunity
 2. Product Vision and User Roles
@@ -455,7 +555,7 @@ Run backend on Laptop A, access the app from both laptops for owner and tenant d
 
 ---
 
-## 16) Quick Command Reference
+## 17) Quick Command Reference
 
 Backend:
 ```bash

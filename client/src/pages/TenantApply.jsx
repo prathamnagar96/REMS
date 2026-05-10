@@ -76,6 +76,9 @@ export default function TenantApply() {
         setSubmitError("");
         try {
             await applyForProperty(propertyId, {
+                fullName: form.fullName.trim() || null,
+                email: form.email.trim() || null,
+                phone: form.phone.trim() || null,
                 moveInDate: form.moveInDate || null,
                 leaseMonths: Number(form.leaseMonths || 11),
                 offeredRent: form.offeredRent === "" ? null : Number(form.offeredRent),
@@ -221,7 +224,9 @@ export default function TenantApply() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 28 }}>
                     {step > 0 ? (
                         <button className="btn-secondary" style={{ padding: "12px 20px" }} onClick={() => setStep((prev) => prev - 1)}>Back</button>
-                    ) : <div />}
+                    ) : (
+                        <button className="btn-secondary" style={{ padding: "12px 20px" }} onClick={() => navigate(`/tenant/search/${propertyId}`)}>Back to Property</button>
+                    )}
 
                     {step < STEPS.length - 1 ? (
                         <button

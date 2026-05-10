@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import { browseProperties } from "../services/apiClient";
 import "./Dashboard.css";
 import "./TenantPages.css";
@@ -91,6 +92,61 @@ function PropertyCard({ item, index, onView }) {
                     <button className="btn-primary" style={{ padding: "8px 16px", fontSize: 13, fontWeight: 600 }} onClick={() => onView(item.id)}>View</button>
                 </div>
             </div>
+        </div>
+    );
+}
+
+function MapView({ items, onView }) {
+    const mapped = useMemo(
+        () =>
+            items
+                .map((item) => ({
+                    ...item,
+                    latitude: Number(item.latitude ?? item.lat),
+                    longitude: Number(item.longitude ?? item.lng),
+                }))
+                .filter((item) => Number.isFinite(item.latitude) && Number.isFinite(item.longitude)),
+        [items],
+    );
+
+    const center = useMemo(() => {
+        if (!mapped.length) return [20.5937, 78.9629];
+        const avgLat = mapped.reduce((sum, item) => sum + item.latitude, 0) / mapped.length;
+        const avgLng = mapped.reduce((sum, item) => sum + item.longitude, 0) / mapped.length;
+        return [avgLat, avgLng];
+    }, [mapped]);
+
+    return (
+        <div className="tp-map-wrap">
+            <div className="tp-map">
+                <MapContainer center={center} zoom={mapped.length ? 12 : 5} scrollWheelZoom>
+                    <TileLayer
+                        attribution="&copy; OpenStreetMap contributors"
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
+                    {mapped.map((item) => (
+                        <Marker key={item.id} position={[item.latitude, item.longitude]}>
+                            <Popup>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 180 }}>
+                                    <div style={{ fontWeight: 600, fontSize: 14 }}>{normalizeText(item.title, "Property")}</div>
+                                    <div style={{ fontSize: 12, color: "var(--text-lite)" }}>
+                                        {normalizeText(item.address)}{item.city ? `, ${item.city}` : ""}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: "var(--navy)", fontWeight: 600 }}>INR {fmt(item.rent)}</div>
+                                    <button className="btn-primary" style={{ fontSize: 12 }} onClick={() => onView(item.id)}>View</button>
+                                </div>
+                            </Popup>
+                        </Marker>
+                    ))}
+                </MapContainer>
+            </div>
+            {!mapped.length && (
+                <div className="card">
+                    <div className="card-body" style={{ color: "var(--text-lite)" }}>
+                        No geocoded properties yet. Add address details and try again.
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -242,6 +298,7 @@ export default function TenantSearch() {
                     <div className="view-toggle">
                         <button className={`view-btn${viewMode === "grid" ? " view-btn-on" : ""}`} onClick={() => setViewMode("grid")}>Grid</button>
                         <button className={`view-btn${viewMode === "list" ? " view-btn-on" : ""}`} onClick={() => setViewMode("list")}>List</button>
+                        <button className={`view-btn${viewMode === "map" ? " view-btn-on" : ""}`} onClick={() => setViewMode("map")}>Map</button>
                     </div>
                 </div>
 
@@ -279,6 +336,8 @@ export default function TenantSearch() {
 
                 {loading ? (
                     <div className="card"><div className="card-body">Loading available properties...</div></div>
+                ) : viewMode === "map" ? (
+                    <MapView items={filtered} onView={(propertyId) => navigate(`/tenant/search/${propertyId}`)} />
                 ) : viewMode === "grid" ? (
                     <div className="tp-grid">
                         {filtered.map((item, index) => (

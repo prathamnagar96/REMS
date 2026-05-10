@@ -54,15 +54,17 @@ body {
     background: var(--cream);
     color: var(--text);
     -webkit-font-smoothing: antialiased;
-    overflow: hidden;
+    overflow-y: auto;
 }
+
 
 /* ─── Root Layout ─────────────────────────────────────────────────────────── */
 .dash-root {
     display: flex;
-    height: 100vh;
+    min-height: 100vh;
     overflow: hidden;
 }
+
 
 /* ─── Sidebar ─────────────────────────────────────────────────────────────── */
 .dash-sidebar {

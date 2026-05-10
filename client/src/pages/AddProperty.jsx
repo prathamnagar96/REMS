@@ -275,29 +275,27 @@ const Label = ({ children, required }) => (
   <label className="f-lbl">{children}{required && <span style={{ color: "var(--red)", marginLeft: 3 }}>*</span>}</label>
 );
 
-const Input = ({ label, name, type = "text", value, onChange, placeholder, required, hint }) => (
+const Input = ({ label, name, type = "text", value, onChange, required }) => (
   <div className="f-grp">
     <Label required={required}>{label}</Label>
-    <input className="f-ctrl" type={type} name={name} value={value} onChange={onChange} placeholder={placeholder} required={required} autoComplete="off" />
-    {hint && <div style={{ fontSize: 11, color: "var(--text-lite)", marginTop: 3 }}>{hint}</div>}
+    <input className="f-ctrl" type={type} name={name} value={value} onChange={onChange} required={required} autoComplete="off" />
   </div>
 );
 
-const Select = ({ label, name, value, onChange, options, required, hint }) => (
+const Select = ({ label, name, value, onChange, options, required }) => (
   <div className="f-grp">
     <Label required={required}>{label}</Label>
     <select className="f-ctrl" name={name} value={value} onChange={onChange}>
       <option value="">Select</option>
       {options.map(o => <option key={o.value || o} value={o.value || o}>{o.label || o}</option>)}
     </select>
-    {hint && <div style={{ fontSize: 11, color: "var(--text-lite)", marginTop: 3 }}>{hint}</div>}
   </div>
 );
 
-const TextArea = ({ label, name, value, onChange, placeholder, rows = 3, required }) => (
+const TextArea = ({ label, name, value, onChange, rows = 3, required }) => (
   <div className="f-grp">
     <Label required={required}>{label}</Label>
-    <textarea className="f-ctrl" name={name} value={value} onChange={onChange} placeholder={placeholder} rows={rows} style={{ resize: "vertical" }} />
+    <textarea className="f-ctrl" name={name} value={value} onChange={onChange} rows={rows} style={{ resize: "vertical" }} />
   </div>
 );
 
@@ -336,14 +334,12 @@ const AmenityToggle = ({ value, onChange }) => {
   );
 };
 
-const FileUploadZone = ({ label, name, value, onChange, accept, hint, multiple = true }) => (
+const FileUploadZone = ({ label, name, value, onChange, accept, multiple = true }) => (
   <div className="f-grp">
     <Label>{label}</Label>
     <label className="file-upload-zone">
       <input type="file" hidden name={name} onChange={onChange} accept={accept} multiple={multiple} />
       <div className="file-zone-icon">↑</div>
-      <div className="file-zone-text">Click or drag to upload</div>
-      <div className="file-zone-hint">{hint}</div>
       {value && value.length > 0 && <div className="file-zone-count">{value.length} file(s) selected</div>}
     </label>
   </div>
@@ -670,9 +666,8 @@ export default function AddProperty({ onNavigate }) {
               <div className="form-row-single">
                 <div className="f-grp">
                   <Label required>Listing Title</Label>
-                  <input className={`f-ctrl ${errors.title ? "f-ctrl-error" : ""}`} name="title" value={data.title} onChange={ch} placeholder='e.g. "Spacious 2BHK with Sea View in Bandra West"' />
+                  <input className={`f-ctrl ${errors.title ? "f-ctrl-error" : ""}`} name="title" value={data.title} onChange={ch} />
                   {errors.title && <div className="f-error">{errors.title}</div>}
-                  <div style={{ fontSize: 11, color: "var(--text-lite)", marginTop: 3 }}>Make it descriptive — good titles get 3× more inquiries</div>
                 </div>
               </div>
 
@@ -705,7 +700,7 @@ export default function AddProperty({ onNavigate }) {
                   </div>
                   {errors.bhk && <div className="f-error">{errors.bhk}</div>}
                 </div>
-                <Input label="Total Units Available" name="totalUnits" type="number" value={data.totalUnits} onChange={ch} placeholder="1" hint="How many identical units are available?" />
+                <Input label="Total Units Available" name="totalUnits" type="number" value={data.totalUnits} onChange={ch} />
               </div>
 
               <div className="ap-section-divider">
@@ -713,14 +708,14 @@ export default function AddProperty({ onNavigate }) {
               </div>
 
               <div className="form-row-single">
-                <TextArea label="Full Address" name="address" value={data.address} onChange={ch} placeholder="Flat/Plot number, Building name, Street, Locality..." required rows={2} />
+                <TextArea label="Full Address" name="address" value={data.address} onChange={ch} required rows={2} />
                 {errors.address && <div className="f-error">{errors.address}</div>}
               </div>
 
               <div className="form-row">
                 <div className="f-grp">
                   <Label required>City</Label>
-                  <input className={`f-ctrl ${errors.city ? "f-ctrl-error" : ""}`} name="city" value={data.city} onChange={ch} placeholder="e.g. Mumbai" />
+                  <input className={`f-ctrl ${errors.city ? "f-ctrl-error" : ""}`} name="city" value={data.city} onChange={ch} />
                   {errors.city && <div className="f-error">{errors.city}</div>}
                 </div>
                 <div className="f-grp">
@@ -736,10 +731,10 @@ export default function AddProperty({ onNavigate }) {
               <div className="form-row">
                 <div className="f-grp">
                   <Label required>PIN Code</Label>
-                  <input className={`f-ctrl ${errors.pincode ? "f-ctrl-error" : ""}`} name="pincode" value={data.pincode} onChange={ch} placeholder="400001" maxLength={6} />
+                  <input className={`f-ctrl ${errors.pincode ? "f-ctrl-error" : ""}`} name="pincode" value={data.pincode} onChange={ch} maxLength={6} />
                   {errors.pincode && <div className="f-error">{errors.pincode}</div>}
                 </div>
-                <Input label="Nearby Landmark" name="landmark" value={data.landmark} onChange={ch} placeholder="e.g. Near Hiranandani Hospital" hint="Helps tenants locate the property easily" />
+                <Input label="Nearby Landmark" name="landmark" value={data.landmark} onChange={ch} />
               </div>
             </div>
           )}
@@ -752,27 +747,25 @@ export default function AddProperty({ onNavigate }) {
               <div className="form-row">
                 <div className="f-grp">
                   <Label required>Carpet Area (sq. ft.)</Label>
-                  <input className={`f-ctrl ${errors.sizeCarpet ? "f-ctrl-error" : ""}`} type="number" name="sizeCarpet" value={data.sizeCarpet} onChange={ch} placeholder="850" />
+                  <input className={`f-ctrl ${errors.sizeCarpet ? "f-ctrl-error" : ""}`} type="number" name="sizeCarpet" value={data.sizeCarpet} onChange={ch} />
                   {errors.sizeCarpet && <div className="f-error">{errors.sizeCarpet}</div>}
-                  <div style={{ fontSize: 11, color: "var(--text-lite)", marginTop: 3 }}>Usable floor area excluding walls</div>
                 </div>
-                <Input label="Built-up Area (sq. ft.)" name="sizeBuiltup" type="number" value={data.sizeBuiltup} onChange={ch} placeholder="1000" hint="Including wall thickness and common areas" />
+                <Input label="Built-up Area (sq. ft.)" name="sizeBuiltup" type="number" value={data.sizeBuiltup} onChange={ch} />
               </div>
 
               <div className="form-row">
-                <Input label="Floor Number" name="floorNumber" value={data.floorNumber} onChange={ch} placeholder="e.g. 4" />
+                <Input label="Floor Number" name="floorNumber" value={data.floorNumber} onChange={ch} />
                 <div className="f-grp">
                   <Label required>Total Floors in Building</Label>
-                  <input className={`f-ctrl ${errors.totalFloors ? "f-ctrl-error" : ""}`} type="number" name="totalFloors" value={data.totalFloors} onChange={ch} placeholder="12" />
+                  <input className={`f-ctrl ${errors.totalFloors ? "f-ctrl-error" : ""}`} type="number" name="totalFloors" value={data.totalFloors} onChange={ch} />
                   {errors.totalFloors && <div className="f-error">{errors.totalFloors}</div>}
-                  <div style={{ fontSize: 11, color: "var(--text-lite)", marginTop: 3 }}>Used for the live 3D model on the left</div>
                 </div>
               </div>
 
               <div className="form-row">
                 <Select label="Facing Direction" name="facing" value={data.facing} onChange={ch}
                   options={["North", "South", "East", "West", "North-East", "North-West", "South-East", "South-West"].map(f => ({ value: f, label: f }))} />
-                <Input label="Property Age (years)" name="propertyAge" type="number" value={data.propertyAge} onChange={ch} placeholder="5" hint="Approx. years since construction" />
+                <Input label="Property Age (years)" name="propertyAge" type="number" value={data.propertyAge} onChange={ch} />
               </div>
 
               <div className="ap-section-divider"><span>Furnishing & Parking</span></div>
@@ -822,8 +815,7 @@ export default function AddProperty({ onNavigate }) {
               </div>
 
               <div className="ap-section-divider" style={{ marginTop: 24 }}><span>Property Description</span></div>
-              <TextArea label="Describe your property" name="description" value={data.description} onChange={ch} rows={5}
-                placeholder="Highlight what makes this property special — natural light, views, proximity to metro/schools/markets, recent renovations, quiet neighbourhood, etc.&#10;&#10;Good descriptions attract serious tenants and reduce back-and-forth inquiries." />
+              <TextArea label="Describe your property" name="description" value={data.description} onChange={ch} rows={5} />
             </div>
           )}
 
@@ -837,7 +829,7 @@ export default function AddProperty({ onNavigate }) {
                   <Label required>Monthly Rent (₹)</Label>
                   <div style={{ position: "relative" }}>
                     <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-mid)", fontWeight: 500 }}>₹</span>
-                    <input className={`f-ctrl ${errors.rent ? "f-ctrl-error" : ""}`} type="number" name="rent" value={data.rent} onChange={ch} placeholder="28000" style={{ paddingLeft: 28 }} />
+                    <input className={`f-ctrl ${errors.rent ? "f-ctrl-error" : ""}`} type="number" name="rent" value={data.rent} onChange={ch} style={{ paddingLeft: 28 }} />
                   </div>
                   {errors.rent && <div className="f-error">{errors.rent}</div>}
                   {data.rent && <div style={{ fontSize: 11, color: "var(--text-lite)", marginTop: 3 }}>Annual: ₹{fmt(data.rent * 12)}</div>}
@@ -846,7 +838,7 @@ export default function AddProperty({ onNavigate }) {
                   <Label required>Security Deposit (₹)</Label>
                   <div style={{ position: "relative" }}>
                     <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-mid)", fontWeight: 500 }}>₹</span>
-                    <input className={`f-ctrl ${errors.deposit ? "f-ctrl-error" : ""}`} type="number" name="deposit" value={data.deposit} onChange={ch} placeholder="84000" style={{ paddingLeft: 28 }} />
+                    <input className={`f-ctrl ${errors.deposit ? "f-ctrl-error" : ""}`} type="number" name="deposit" value={data.deposit} onChange={ch} style={{ paddingLeft: 28 }} />
                   </div>
                   {errors.deposit && <div className="f-error">{errors.deposit}</div>}
                   {data.rent && data.deposit && <div style={{ fontSize: 11, color: "var(--text-lite)", marginTop: 3 }}>{(data.deposit / data.rent).toFixed(1)}× monthly rent</div>}
@@ -858,7 +850,7 @@ export default function AddProperty({ onNavigate }) {
                   <Label>Maintenance Charges (₹)</Label>
                   <div style={{ position: "relative" }}>
                     <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-mid)", fontWeight: 500 }}>₹</span>
-                    <input className="f-ctrl" type="number" name="maintenanceCharges" value={data.maintenanceCharges} onChange={ch} placeholder="1500" style={{ paddingLeft: 28 }} />
+                    <input className="f-ctrl" type="number" name="maintenanceCharges" value={data.maintenanceCharges} onChange={ch} style={{ paddingLeft: 28 }} />
                   </div>
                 </div>
                 <Select label="Maintenance Frequency" name="maintenanceFreq" value={data.maintenanceFreq} onChange={ch}
@@ -888,8 +880,7 @@ export default function AddProperty({ onNavigate }) {
               </div>
 
               <div className="ap-section-divider"><span>House Rules</span></div>
-              <TextArea label="Additional Terms & House Rules" name="houseRules" value={data.houseRules} onChange={ch} rows={4}
-                placeholder="e.g. No smoking inside the property&#10;No loud music after 10 PM&#10;No structural modifications without written approval&#10;Visitors must register at security" />
+              <TextArea label="Additional Terms & House Rules" name="houseRules" value={data.houseRules} onChange={ch} rows={4} />
             </div>
           )}
 
@@ -901,15 +892,15 @@ export default function AddProperty({ onNavigate }) {
                 💡 Properties with 6+ photos get <strong>4× more inquiries</strong>. Cover all rooms, balcony, parking, and building entrance.
               </div>
 
-              <FileUploadZone label="Property Photos (up to 20)" name="photos" value={data.photos} onChange={chFile} accept="image/jpeg,image/png,image/webp" hint="JPG, PNG, WEBP — max 5 MB per image — min 1280×720px recommended" />
+              <FileUploadZone label="Property Photos (up to 20)" name="photos" value={data.photos} onChange={chFile} accept="image/jpeg,image/png,image/webp" />
 
               <div className="form-row-single" style={{ marginTop: 16 }}>
-                <Input label="Virtual / Video Tour Link" name="videoTour" value={data.videoTour} onChange={ch} placeholder="https://youtube.com/... or Google Maps 3D link" hint="Optional — embeds a walkthrough video on your listing" />
+                <Input label="Virtual / Video Tour Link" name="videoTour" value={data.videoTour} onChange={ch} />
               </div>
 
               <div className="ap-section-divider" style={{ marginTop: 8 }}><span>Legal Documents</span></div>
               <div style={{ fontSize: 12.5, color: "var(--text-mid)", marginBottom: 16, lineHeight: 1.5 }}>Upload ownership proof and NOC to get a Verified Owner badge. Documents are kept strictly confidential.</div>
-              <FileUploadZone label="Ownership & Legal Documents" name="documents" value={data.documents} onChange={chFile} accept=".pdf,.jpg,.png" hint="Property card, sale deed, POA, NOC — PDF or JPG — max 10 MB" />
+              <FileUploadZone label="Ownership & Legal Documents" name="documents" value={data.documents} onChange={chFile} accept=".pdf,.jpg,.png" />
             </div>
           )}
 
